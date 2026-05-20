@@ -1,0 +1,41 @@
+{% extends "base.html" %}
+{% block page_title %}الفواتير{% endblock %}
+{% block content %}
+<div class="card p-6">
+  <div class="flex items-center justify-between mb-5">
+    <div class="flex items-center gap-2">
+      <h2 class="font-bold text-navy-900">الفواتير</h2>
+      <select onchange="window.location.search = this.value ? '?status='+this.value : ''" class="select text-sm w-auto">
+        <option value="">كل الحالات</option>
+        {% for s in statuses %}<option value="{{ s.name }}" {% if request.args.get('status') == s.name %}selected{% endif %}>{{ s.value }}</option>{% endfor %}
+      </select>
+    </div>
+    <a href="{{ url_for('invoices.new') }}" class="btn-primary">+ فاتورة جديدة</a>
+  </div>
+  <table class="data-table">
+    <thead><tr><th>الرقم</th><th>العميل</th><th>الإصدار</th><th>الاستحقاق</th><th class="text-left">الإجمالي</th><th class="text-left">المتبقي</th><th>الحالة</th><th></th></tr></thead>
+    <tbody>
+      {% for inv in invoices %}
+      {% set status_class = {
+        'DRAFT':'badge-draft','SENT':'badge-sent','PAID':'badge-paid',
+        'PARTIALLY_PAID':'badge-partial','OVERDUE':'badge-overdue',
+        'CANCELLED':'badge-cancelled','REFUNDED':'badge-refunded',
+        'PARTIALLY_REFUNDED':'badge-refunded'
+      } %}
+      <tr>
+        <td class="font-mono">{{ inv.number }}</td>
+        <td>{{ inv.customer.name }}</td>
+        <td class="text-sm text-slate-500">{{ inv.issue_date.isoformat() }}</td>
+        <td class="text-sm text-slate-500">{{ inv.due_date.isoformat() }}</td>
+        <td class="text-left font-mono font-semibold">{{ "%.2f"|format(inv.total) }}</td>
+        <td class="text-left font-mono {% if inv.balance > 0 %}text-amber-600{% else %}text-emerald-600{% endif %}">{{ "%.2f"|format(inv.balance) }}</td>
+        <td><span class="badge {{ status_class.get(inv.status.value, 'badge-draft') }}">{{ inv.status.value }}</span></td>
+        <td><a href="{{ url_for('invoices.view', invoice_id=inv.id) }}" class="text-brand-600 hover:underline text-sm">عرض</a></td>
+      </tr>
+      {% else %}
+      <tr><td colspan="8" class="text-center text-slate-400 py-8">لا توجد فواتير</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

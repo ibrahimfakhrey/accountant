@@ -1,0 +1,19 @@
+{% extends "base.html" %}
+{% block page_title %}التقارير المالية{% endblock %}
+{% block content %}
+<div class="grid grid-cols-3 gap-4">
+  {% set reports = [
+    ('balance', 'الميزانية العمومية', 'Balance Sheet', 'Assets = Liabilities + Equity', '⚖️'),
+    ('income', 'قائمة الدخل', 'Income Statement', 'Revenue − Expenses', '📈'),
+    ('cashflow', 'التدفقات النقدية', 'Cash Flow Statement', 'Operating + Investing + Financing', '💵'),
+  ] %}
+  {% for endpoint, title_ar, title_en, formula, icon in reports %}
+  <a href="{{ url_for('reports.' + endpoint) }}" class="card p-6 hover:shadow-soft hover:-translate-y-0.5 transition-all border-2 border-transparent hover:border-brand-500">
+    <div class="text-4xl mb-3">{{ icon }}</div>
+    <h3 class="font-bold text-navy-900">{{ title_ar }}</h3>
+    <p class="text-sm text-slate-500 mb-2">{{ title_en }}</p>
+    <p class="text-xs text-brand-600 font-mono">{{ formula }}</p>
+  </a>
+  {% endfor %}
+</div>
+{% endblock %}

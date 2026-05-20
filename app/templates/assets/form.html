@@ -1,0 +1,43 @@
+{% extends "base.html" %}
+{% block page_title %}أصل ثابت جديد{% endblock %}
+{% block content %}
+<div class="card p-6 max-w-2xl">
+  <form method="POST" class="space-y-4">
+    <div>
+      <label class="block text-sm font-semibold text-slate-700 mb-2">اسم الأصل</label>
+      <input type="text" name="name" required class="input">
+    </div>
+    <div class="grid grid-cols-2 gap-4">
+      <div>
+        <label class="block text-sm font-semibold text-slate-700 mb-2">تاريخ الشراء</label>
+        <input type="date" name="purchase_date" required class="input" id="pd">
+      </div>
+      <div>
+        <label class="block text-sm font-semibold text-slate-700 mb-2">حساب الأصل</label>
+        <select name="account_id" required class="select">
+          {% for a in fixed_accounts %}<option value="{{ a.id }}">{{ a.code }} — {{ a.name_ar or a.name }}</option>{% endfor %}
+        </select>
+      </div>
+    </div>
+    <div class="grid grid-cols-3 gap-4">
+      <div>
+        <label class="block text-sm font-semibold text-slate-700 mb-2">التكلفة</label>
+        <input type="number" name="cost" step="0.01" required class="input font-mono">
+      </div>
+      <div>
+        <label class="block text-sm font-semibold text-slate-700 mb-2">القيمة التخريدية</label>
+        <input type="number" name="salvage_value" step="0.01" value="0" class="input font-mono">
+      </div>
+      <div>
+        <label class="block text-sm font-semibold text-slate-700 mb-2">العمر الإنتاجي (سنوات)</label>
+        <input type="number" name="useful_life_years" min="1" required class="input">
+      </div>
+    </div>
+    <div class="flex justify-end gap-2 pt-2">
+      <a href="{{ url_for('assets.index') }}" class="btn-secondary">إلغاء</a>
+      <button type="submit" class="btn-primary">إضافة</button>
+    </div>
+  </form>
+</div>
+<script>document.getElementById('pd').value = new Date().toISOString().split('T')[0];</script>
+{% endblock %}

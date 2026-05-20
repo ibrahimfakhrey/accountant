@@ -1,0 +1,26 @@
+{% extends "base.html" %}
+{% block page_title %}كشف رواتب {{ run.period_month }}/{{ run.period_year }}{% endblock %}
+{% block content %}
+<div class="card p-6">
+  <table class="data-table">
+    <thead><tr><th>الموظف</th><th class="text-left">الأساسي</th><th class="text-left">البدلات</th><th class="text-left">الأوفرتايم</th><th class="text-left">الخصومات</th><th class="text-left">الصافي</th></tr></thead>
+    <tbody>
+      {% for l in run.lines %}
+      <tr>
+        <td class="font-semibold">{{ l.employee.name }}</td>
+        <td class="text-left font-mono">{{ "%.2f"|format(l.basic) }}</td>
+        <td class="text-left font-mono">{{ "%.2f"|format(l.allowances) }}</td>
+        <td class="text-left font-mono">{{ "%.2f"|format(l.overtime) }}</td>
+        <td class="text-left font-mono text-red-600">{{ "%.2f"|format(l.deductions) }}</td>
+        <td class="text-left font-mono font-bold">{{ "%.2f"|format(l.net) }}</td>
+      </tr>
+      {% endfor %}
+      <tr class="border-t-2 border-navy-900 font-bold bg-navy-50">
+        <td class="py-3">الإجمالي</td>
+        <td colspan="4"></td>
+        <td class="text-left font-mono text-lg">{{ "%.2f"|format(run.total_net) }}</td>
+      </tr>
+    </tbody>
+  </table>
+</div>
+{% endblock %}

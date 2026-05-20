@@ -1,0 +1,92 @@
+{% extends "base.html" %}
+{% block page_title %}فاتورة جديدة{% endblock %}
+{% block content %}
+<form method="POST" class="space-y-4">
+  <div class="card p-6">
+    <div class="grid grid-cols-3 gap-4">
+      <div>
+        <label class="block text-sm font-semibold text-slate-700 mb-2">العميل</label>
+        <select name="customer_id" required class="select">
+          <option value="">— اختر —</option>
+          {% for c in customers %}<option value="{{ c.id }}">{{ c.name }}</option>{% endfor %}
+        </select>
+        {% if not customers %}<p class="text-xs text-amber-600 mt-1">لا يوجد عملاء. <a href="{{ url_for('customers.new') }}" class="underline">أضف عميل</a></p>{% endif %}
+      </div>
+      <div>
+        <label class="block text-sm font-semibold text-slate-700 mb-2">تاريخ الإصدار</label>
+        <input type="date" name="issue_date" id="issue_date" required class="input">
+      </div>
+      <div>
+        <label class="block text-sm font-semibold text-slate-700 mb-2">تاريخ الاستحقاق</label>
+        <input type="date" name="due_date" id="due_date" required class="input">
+      </div>
+    </div>
+    <div class="grid grid-cols-2 gap-4 mt-4">
+      <div>
+        <label class="block text-sm font-semibold text-slate-700 mb-2">نسبة الضريبة %</label>
+        <input type="number" name="tax_rate" step="0.01" value="{{ active_company.vat_rate or 15 }}" class="input" id="tax_rate" oninput="calcTotals()">
+      </div>
+      <div>
+        <label class="block text-sm font-semibold text-slate-700 mb-2">ملاحظات</label>
+        <input type="text" name="notes" class="input">
+      </div>
+    </div>
+  </div>
+
+  <div class="card p-6">
+    <div class="flex items-center justify-between mb-3">
+      <h3 class="font-bold text-navy-900">البنود</h3>
+      <button type="button" onclick="addItem()" class="btn-secondary text-sm">+ بند</button>
+    </div>
+    <table class="data-table">
+      <thead><tr><th>الوصف</th><th>الكمية</th><th>سعر الوحدة</th><th class="text-left">الإجمالي</th><th></th></tr></thead>
+      <tbody id="items-body"></tbody>
+      <tfoot>
+        <tr><td colspan="3" class="text-left font-semibold py-2">المجموع قبل الضريبة</td><td class="text-left font-mono" id="subtotal">0.00</td><td></td></tr>
+        <tr><td colspan="3" class="text-left font-semibold py-2">الضريبة</td><td class="text-left font-mono" id="tax">0.00</td><td></td></tr>
+        <tr class="border-t-2 border-navy-900"><td colspan="3" class="text-left font-bold py-3">الإجمالي</td><td class="text-left font-mono font-bold" id="total">0.00</td><td></td></tr>
+      </tfoot>
+    </table>
+  </div>
+
+  <div class="flex justify-end gap-2">
+    <a href="{{ url_for('invoices.index') }}" class="btn-secondary">إلغاء</a>
+    <button type="submit" name="send" value="0" class="btn-secondary">حفظ كمسودة</button>
+    <button type="submit" name="send" value="1" class="btn-primary">إرسال + تسجيل قيد</button>
+  </div>
+</form>
+
+<script>
+function addItem() {
+  const tbody = document.getElementById('items-body');
+  const tr = document.createElement('tr');
+  tr.innerHTML = `
+    <td><input type="text" name="item_description[]" required class="input text-sm"></td>
+    <td><input type="number" name="item_quantity[]" step="0.01" value="1" required class="input text-sm font-mono" oninput="calcTotals()" style="width:6rem"></td>
+    <td><input type="number" name="item_unit_price[]" step="0.01" value="0" required class="input text-sm font-mono" oninput="calcTotals()" style="width:8rem"></td>
+    <td class="text-left font-mono line-total">0.00</td>
+    <td><button type="button" onclick="this.closest('tr').remove(); calcTotals()" class="text-red-500">×</button></td>
+  `;
+  tbody.appendChild(tr);
+}
+function calcTotals() {
+  let sub = 0;
+  document.querySelectorAll('#items-body tr').forEach(tr => {
+    const q = parseFloat(tr.querySelector('input[name="item_quantity[]"]').value || 0);
+    const p = parseFloat(tr.querySelector('input[name="item_unit_price[]"]').value || 0);
+    const lt = q * p;
+    tr.querySelector('.line-total').textContent = lt.toFixed(2);
+    sub += lt;
+  });
+  const tr = parseFloat(document.getElementById('tax_rate').value || 0);
+  const tax = sub * tr / 100;
+  document.getElementById('subtotal').textContent = sub.toFixed(2);
+  document.getElementById('tax').textContent = tax.toFixed(2);
+  document.getElementById('total').textContent = (sub + tax).toFixed(2);
+}
+const today = new Date(); document.getElementById('issue_date').value = today.toISOString().split('T')[0];
+const due = new Date(today); due.setDate(due.getDate() + 30);
+document.getElementById('due_date').value = due.toISOString().split('T')[0];
+addItem();
+</script>
+{% endblock %}

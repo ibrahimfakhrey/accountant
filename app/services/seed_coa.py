@@ -1,0 +1,72 @@
+"""Default Chart of Accounts seeded on company creation."""
+from app import db
+from app.models import Account, AccountType, NormalSide
+
+
+DEFAULT_COA = [
+    # ASSETS (1xxx)
+    ("1000", "Assets", "الأصول", AccountType.ASSET, None),
+    ("1100", "Current Assets", "الأصول المتداولة", AccountType.ASSET, "1000"),
+    ("1110", "Cash", "النقدية", AccountType.ASSET, "1100"),
+    ("1120", "Bank", "البنك", AccountType.ASSET, "1100"),
+    ("1130", "Accounts Receivable", "العملاء — المدينون", AccountType.ASSET, "1100"),
+    ("1140", "Inventory", "المخزون", AccountType.ASSET, "1100"),
+    ("1150", "Prepaid Expenses", "المصروفات المدفوعة مقدماً", AccountType.ASSET, "1100"),
+    ("1200", "Fixed Assets", "الأصول الثابتة", AccountType.ASSET, "1000"),
+    ("1210", "Equipment", "المعدات", AccountType.ASSET, "1200"),
+    ("1220", "Vehicles", "السيارات", AccountType.ASSET, "1200"),
+    ("1230", "Buildings", "المباني", AccountType.ASSET, "1200"),
+    ("1290", "Accumulated Depreciation", "مجمع الاستهلاك", AccountType.ASSET, "1200"),
+    # LIABILITIES (2xxx)
+    ("2000", "Liabilities", "الالتزامات", AccountType.LIABILITY, None),
+    ("2100", "Current Liabilities", "الالتزامات قصيرة الأجل", AccountType.LIABILITY, "2000"),
+    ("2110", "Accounts Payable", "الموردون — الدائنون", AccountType.LIABILITY, "2100"),
+    ("2120", "VAT Payable", "ضريبة القيمة المضافة المستحقة", AccountType.LIABILITY, "2100"),
+    ("2130", "Salaries Payable", "الرواتب المستحقة", AccountType.LIABILITY, "2100"),
+    ("2140", "Short-term Loans", "قروض قصيرة الأجل", AccountType.LIABILITY, "2100"),
+    ("2200", "Long-term Liabilities", "الالتزامات طويلة الأجل", AccountType.LIABILITY, "2000"),
+    ("2210", "Long-term Loans", "قروض طويلة الأجل", AccountType.LIABILITY, "2200"),
+    # EQUITY (3xxx)
+    ("3000", "Equity", "حقوق الملكية", AccountType.EQUITY, None),
+    ("3100", "Owner's Capital", "رأس المال", AccountType.EQUITY, "3000"),
+    ("3200", "Retained Earnings", "الأرباح المحتجزة", AccountType.EQUITY, "3000"),
+    ("3300", "Drawings", "المسحوبات الشخصية", AccountType.EQUITY, "3000"),
+    # REVENUE (4xxx)
+    ("4000", "Revenue", "الإيرادات", AccountType.REVENUE, None),
+    ("4100", "Sales Revenue", "إيرادات المبيعات", AccountType.REVENUE, "4000"),
+    ("4200", "Service Revenue", "إيرادات الخدمات", AccountType.REVENUE, "4000"),
+    ("4300", "Other Income", "إيرادات أخرى", AccountType.REVENUE, "4000"),
+    # EXPENSES (5xxx)
+    ("5000", "Expenses", "المصروفات", AccountType.EXPENSE, None),
+    ("5100", "Cost of Goods Sold", "تكلفة البضاعة المباعة", AccountType.EXPENSE, "5000"),
+    ("5200", "Operating Expenses", "المصروفات التشغيلية", AccountType.EXPENSE, "5000"),
+    ("5210", "Salaries Expense", "مصروف الرواتب", AccountType.EXPENSE, "5200"),
+    ("5220", "Rent Expense", "مصروف الإيجار", AccountType.EXPENSE, "5200"),
+    ("5230", "Utilities", "المرافق", AccountType.EXPENSE, "5200"),
+    ("5240", "Marketing", "التسويق والإعلان", AccountType.EXPENSE, "5200"),
+    ("5250", "Depreciation Expense", "مصروف الاستهلاك", AccountType.EXPENSE, "5200"),
+    ("5260", "Office Supplies", "أدوات مكتبية", AccountType.EXPENSE, "5200"),
+    ("5270", "Bank Charges", "عمولات البنك", AccountType.EXPENSE, "5200"),
+]
+
+
+def seed_default_coa(company_id):
+    """Create the default Chart of Accounts for a new company."""
+    from app.models.account import NORMAL_SIDE_FOR_TYPE
+
+    code_to_id = {}
+    for code, name, name_ar, acc_type, parent_code in DEFAULT_COA:
+        parent_id = code_to_id.get(parent_code) if parent_code else None
+        acc = Account(
+            company_id=company_id,
+            code=code,
+            name=name,
+            name_ar=name_ar,
+            type=acc_type,
+            normal_side=NORMAL_SIDE_FOR_TYPE[acc_type],
+            parent_id=parent_id,
+        )
+        db.session.add(acc)
+        db.session.flush()
+        code_to_id[code] = acc.id
+    db.session.commit()

@@ -1,0 +1,32 @@
+{% extends "base.html" %}
+{% block page_title %}الأصول الثابتة{% endblock %}
+{% block content %}
+<div class="card p-6">
+  <div class="flex items-center justify-between mb-5">
+    <h2 class="font-bold text-navy-900">الأصول الثابتة</h2>
+    <div class="flex gap-2">
+      <form method="POST" action="{{ url_for('assets.depreciate') }}" onsubmit="return confirm('تسجيل قيد الاستهلاك للشهر الحالي؟')">
+        <button type="submit" class="btn-secondary text-sm">تسجيل استهلاك الشهر</button>
+      </form>
+      <a href="{{ url_for('assets.new') }}" class="btn-primary">+ أصل جديد</a>
+    </div>
+  </div>
+  <table class="data-table">
+    <thead><tr><th>الاسم</th><th>تاريخ الشراء</th><th class="text-left">التكلفة</th><th class="text-left">العمر</th><th class="text-left">الاستهلاك السنوي</th><th class="text-left">القيمة الدفترية</th></tr></thead>
+    <tbody>
+    {% for a in assets %}
+      <tr>
+        <td class="font-semibold">{{ a.name }}</td>
+        <td class="text-sm">{{ a.purchase_date.isoformat() }}</td>
+        <td class="text-left font-mono">{{ "%.2f"|format(a.cost) }}</td>
+        <td class="text-left">{{ a.useful_life_years }} سنة</td>
+        <td class="text-left font-mono text-amber-600">{{ "%.2f"|format(a.annual_depreciation) }}</td>
+        <td class="text-left font-mono font-bold">{{ "%.2f"|format(a.net_book_value) }}</td>
+      </tr>
+    {% else %}
+      <tr><td colspan="6" class="text-center text-slate-400 py-8">لا توجد أصول</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

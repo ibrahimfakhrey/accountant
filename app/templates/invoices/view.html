@@ -1,0 +1,103 @@
+{% extends "base.html" %}
+{% block page_title %}فاتورة {{ invoice.number }}{% endblock %}
+{% block content %}
+<div class="grid grid-cols-3 gap-4">
+  <div class="card p-6 col-span-2">
+    <div class="flex items-start justify-between mb-6">
+      <div>
+        <div class="text-xs text-slate-500">فاتورة</div>
+        <h2 class="text-2xl font-bold text-navy-900">#{{ invoice.number }}</h2>
+      </div>
+      {% set status_class = {'DRAFT':'badge-draft','SENT':'badge-sent','PAID':'badge-paid','PARTIALLY_PAID':'badge-partial','OVERDUE':'badge-overdue','CANCELLED':'badge-cancelled','REFUNDED':'badge-refunded','PARTIALLY_REFUNDED':'badge-refunded'} %}
+      <span class="badge {{ status_class.get(invoice.status.value, 'badge-draft') }} text-base px-3 py-1.5">{{ invoice.status.value }}</span>
+    </div>
+
+    <div class="grid grid-cols-2 gap-4 mb-6">
+      <div>
+        <div class="text-xs text-slate-500 mb-1">العميل</div>
+        <div class="font-semibold text-navy-900">{{ invoice.customer.name }}</div>
+        {% if invoice.customer.email %}<div class="text-sm text-slate-500">{{ invoice.customer.email }}</div>{% endif %}
+      </div>
+      <div class="text-left">
+        <div class="text-xs text-slate-500 mb-1">التواريخ</div>
+        <div class="text-sm">إصدار: {{ invoice.issue_date.isoformat() }}</div>
+        <div class="text-sm">استحقاق: {{ invoice.due_date.isoformat() }}</div>
+      </div>
+    </div>
+
+    <table class="data-table">
+      <thead><tr><th>البند</th><th>الكمية</th><th>السعر</th><th class="text-left">الإجمالي</th></tr></thead>
+      <tbody>
+        {% for item in invoice.items %}
+        <tr>
+          <td>{{ item.description }}</td>
+          <td class="font-mono">{{ "%.2f"|format(item.quantity) }}</td>
+          <td class="font-mono">{{ "%.2f"|format(item.unit_price) }}</td>
+          <td class="text-left font-mono">{{ "%.2f"|format(item.total) }}</td>
+        </tr>
+        {% endfor %}
+        <tr><td colspan="3" class="text-left font-semibold py-2">المجموع قبل الضريبة</td><td class="text-left font-mono">{{ "%.2f"|format(invoice.subtotal) }}</td></tr>
+        <tr><td colspan="3" class="text-left font-semibold py-2">الضريبة ({{ "%.2f"|format(invoice.tax_rate) }}%)</td><td class="text-left font-mono">{{ "%.2f"|format(invoice.tax_amount) }}</td></tr>
+        <tr class="border-t-2 border-navy-900"><td colspan="3" class="text-left font-bold py-3">الإجمالي</td><td class="text-left font-mono font-bold text-lg">{{ "%.2f"|format(invoice.total) }} {{ invoice.currency }}</td></tr>
+        <tr><td colspan="3" class="text-left text-emerald-600 py-2">المدفوع</td><td class="text-left font-mono text-emerald-600">{{ "%.2f"|format(invoice.paid_amount or 0) }}</td></tr>
+        <tr><td colspan="3" class="text-left font-bold text-amber-600 py-2">المتبقي</td><td class="text-left font-mono font-bold text-amber-600">{{ "%.2f"|format(invoice.balance) }}</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="space-y-4">
+    {% if invoice.status.value == 'DRAFT' %}
+    <div class="card p-5">
+      <h3 class="font-bold text-navy-900 mb-3">إرسال الفاتورة</h3>
+      <form method="POST" action="{{ url_for('invoices.send', invoice_id=invoice.id) }}">
+        <button type="submit" class="btn-primary w-full">إرسال + تسجيل قيد</button>
+      </form>
+    </div>
+    {% endif %}
+
+    {% if invoice.balance > 0.01 and invoice.status.value in ['SENT', 'PARTIALLY_PAID', 'OVERDUE'] %}
+    <div class="card p-5">
+      <h3 class="font-bold text-navy-900 mb-3">تسجيل دفعة</h3>
+      <form method="POST" action="{{ url_for('invoices.pay', invoice_id=invoice.id) }}" class="space-y-3">
+        <input type="number" name="amount" step="0.01" max="{{ invoice.balance }}" placeholder="المبلغ" required class="input text-sm">
+        <select name="method" class="select text-sm">
+          <option value="cash">نقدي</option>
+          <option value="bank">بنك</option>
+        </select>
+        <button type="submit" class="btn-accent w-full">تسجيل الدفعة</button>
+      </form>
+    </div>
+    {% endif %}
+
+    {% if invoice.status.value in ['PAID', 'PARTIALLY_PAID', 'SENT'] %}
+    <div class="card p-5">
+      <h3 class="font-bold text-navy-900 mb-3">استرداد / Credit Note</h3>
+      <form method="POST" action="{{ url_for('invoices.refund', invoice_id=invoice.id) }}" class="space-y-3">
+        <select name="type" class="select text-sm">
+          <option value="FULL">استرداد كامل</option>
+          <option value="PARTIAL">استرداد جزئي</option>
+          <option value="CREDIT_NOTE">Credit Note</option>
+        </select>
+        <input type="number" name="amount" step="0.01" placeholder="المبلغ (للجزئي/Credit Note)" class="input text-sm">
+        <input type="text" name="reason" placeholder="السبب" class="input text-sm">
+        <button type="submit" class="btn-danger w-full" onclick="return confirm('تأكيد الاسترداد؟')">تسجيل</button>
+      </form>
+    </div>
+    {% endif %}
+
+    {% if invoice.payments %}
+    <div class="card p-5">
+      <h3 class="font-bold text-navy-900 mb-3">الدفعات</h3>
+      <div class="space-y-2 text-sm">
+      {% for p in invoice.payments %}
+        <div class="flex justify-between py-2 border-b border-slate-100">
+          <span>{{ p.payment_date.isoformat() }} · {{ p.method }}</span>
+          <span class="font-mono font-semibold text-emerald-600">{{ "%.2f"|format(p.amount) }}</span>
+        </div>
+      {% endfor %}
+      </div>
+    </div>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}

@@ -1,0 +1,127 @@
+"""Double-entry posting service. Every accounting event flows through here."""
+from datetime import date
+from app import db
+from app.models import JournalEntry, JournalLine, Account
+
+
+class LedgerError(Exception):
+    pass
+
+
+def post_journal(
+    company_id,
+    description,
+    lines,
+    entry_date=None,
+    reference=None,
+    currency="SAR",
+    exchange_rate=1.0,
+    created_by=None,
+    source_type=None,
+    source_id=None,
+):
+    """Post a balanced journal entry.
+
+    lines: list of dicts: {account_id, debit, credit, memo?}
+    """
+    if not lines or len(lines) < 2:
+        raise LedgerError("القيد يجب أن يحتوي على سطرين على الأقل")
+
+    total_debit = sum(float(l.get("debit") or 0) for l in lines)
+    total_credit = sum(float(l.get("credit") or 0) for l in lines)
+
+    if abs(total_debit - total_credit) > 0.0001:
+        raise LedgerError(
+            f"القيد غير متوازن: مدين {total_debit:.2f} ≠ دائن {total_credit:.2f}"
+        )
+
+    if total_debit <= 0:
+        raise LedgerError("القيد لا يمكن أن يكون بقيمة صفر")
+
+    entry = JournalEntry(
+        company_id=company_id,
+        date=entry_date or date.today(),
+        description=description,
+        reference=reference,
+        currency=currency,
+        exchange_rate=exchange_rate,
+        created_by=created_by,
+        source_type=source_type,
+        source_id=source_id,
+    )
+    db.session.add(entry)
+    db.session.flush()
+
+    for line in lines:
+        acc = db.session.get(Account, line["account_id"])
+        if not acc or acc.company_id != company_id:
+            raise LedgerError(f"الحساب غير موجود أو لا ينتمي للشركة")
+        debit = float(line.get("debit") or 0)
+        credit = float(line.get("credit") or 0)
+        if debit > 0 and credit > 0:
+            raise LedgerError("لا يمكن أن يكون السطر مدين ودائن في نفس الوقت")
+        jl = JournalLine(
+            entry_id=entry.id,
+            account_id=acc.id,
+            debit=debit,
+            credit=credit,
+            debit_base=debit * float(exchange_rate),
+            credit_base=credit * float(exchange_rate),
+            memo=line.get("memo"),
+        )
+        db.session.add(jl)
+
+    db.session.commit()
+    return entry
+
+
+def reverse_journal(entry_id, created_by=None):
+    """Create a reversing entry that nullifies the original."""
+    original = db.session.get(JournalEntry, entry_id)
+    if not original:
+        raise LedgerError("القيد غير موجود")
+    if original.is_reversal:
+        raise LedgerError("لا يمكن عكس قيد عكسي")
+
+    reversed_lines = [
+        {
+            "account_id": l.account_id,
+            "debit": float(l.credit),
+            "credit": float(l.debit),
+            "memo": l.memo,
+        }
+        for l in original.lines
+    ]
+
+    entry = JournalEntry(
+        company_id=original.company_id,
+        date=date.today(),
+        description=f"عكس قيد #{original.id}: {original.description}",
+        reference=original.reference,
+        currency=original.currency,
+        exchange_rate=original.exchange_rate,
+        is_reversal=True,
+        reversal_of=original.id,
+        created_by=created_by,
+    )
+    db.session.add(entry)
+    db.session.flush()
+
+    for line in reversed_lines:
+        jl = JournalLine(
+            entry_id=entry.id,
+            account_id=line["account_id"],
+            debit=line["debit"],
+            credit=line["credit"],
+            debit_base=line["debit"] * float(original.exchange_rate),
+            credit_base=line["credit"] * float(original.exchange_rate),
+            memo=line["memo"],
+        )
+        db.session.add(jl)
+
+    db.session.commit()
+    return entry
+
+
+def get_account_by_code(company_id, code):
+    return Account.query.filter_by(company_id=company_id, code=code).first()

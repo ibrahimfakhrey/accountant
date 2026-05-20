@@ -1,0 +1,43 @@
+{% extends "base.html" %}
+{% block page_title %}حساب جديد{% endblock %}
+{% block content %}
+<div class="card p-6 max-w-2xl">
+  <form method="POST" class="space-y-4">
+    <div class="grid grid-cols-2 gap-4">
+      <div>
+        <label class="block text-sm font-semibold text-slate-700 mb-2">الكود</label>
+        <input type="text" name="code" required class="input font-mono">
+      </div>
+      <div>
+        <label class="block text-sm font-semibold text-slate-700 mb-2">التصنيف</label>
+        <select name="type" required class="select">
+          {% for t in account_types %}
+          <option value="{{ t.name }}">{{ t.value }}</option>
+          {% endfor %}
+        </select>
+      </div>
+    </div>
+    <div>
+      <label class="block text-sm font-semibold text-slate-700 mb-2">الاسم بالعربية</label>
+      <input type="text" name="name_ar" class="input">
+    </div>
+    <div>
+      <label class="block text-sm font-semibold text-slate-700 mb-2">الاسم بالإنجليزية</label>
+      <input type="text" name="name" required dir="ltr" class="input">
+    </div>
+    <div>
+      <label class="block text-sm font-semibold text-slate-700 mb-2">الحساب الأب (اختياري)</label>
+      <select name="parent_id" class="select">
+        <option value="">— حساب رئيسي —</option>
+        {% for p in parents %}
+        <option value="{{ p.id }}">{{ p.code }} — {{ p.name_ar or p.name }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="flex justify-end gap-2 pt-2">
+      <a href="{{ url_for('accounts.index') }}" class="btn-secondary">إلغاء</a>
+      <button type="submit" class="btn-primary">إضافة</button>
+    </div>
+  </form>
+</div>
+{% endblock %}

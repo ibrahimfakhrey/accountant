@@ -1,0 +1,52 @@
+{% extends "base.html" %}
+{% block page_title %}الرواتب{% endblock %}
+{% block content %}
+<div class="grid grid-cols-3 gap-4">
+  <div class="card p-6 col-span-2">
+    <div class="flex items-center justify-between mb-4">
+      <h2 class="font-bold text-navy-900">الموظفون</h2>
+      <a href="{{ url_for('payroll.new_employee') }}" class="btn-primary text-sm">+ موظف</a>
+    </div>
+    <table class="data-table">
+      <thead><tr><th>الاسم</th><th>الوظيفة</th><th class="text-left">الراتب</th><th class="text-left">البدلات</th><th class="text-left">الصافي</th></tr></thead>
+      <tbody>
+        {% for e in employees %}
+        <tr>
+          <td class="font-semibold">{{ e.name }}</td>
+          <td class="text-sm text-slate-500">{{ e.job_title or '—' }}</td>
+          <td class="text-left font-mono">{{ "%.2f"|format(e.basic_salary) }}</td>
+          <td class="text-left font-mono">{{ "%.2f"|format(e.allowances) }}</td>
+          <td class="text-left font-mono font-bold">{{ "%.2f"|format((e.basic_salary or 0) + (e.allowances or 0) - (e.deductions or 0)) }}</td>
+        </tr>
+        {% else %}
+        <tr><td colspan="5" class="text-center text-slate-400 py-8">لا يوجد موظفون</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  <div class="card p-6">
+    <h3 class="font-bold text-navy-900 mb-3">تشغيل كشف رواتب</h3>
+    <form method="POST" action="{{ url_for('payroll.run') }}" class="space-y-3">
+      <select name="year" class="select text-sm">
+        {% for y in [2024, 2025, 2026, 2027] %}<option value="{{ y }}">{{ y }}</option>{% endfor %}
+      </select>
+      <select name="month" class="select text-sm">
+        {% for m in range(1, 13) %}<option value="{{ m }}">شهر {{ m }}</option>{% endfor %}
+      </select>
+      <button type="submit" class="btn-accent w-full" onclick="return confirm('تشغيل كشف الرواتب وتسجيل القيد؟')">تشغيل</button>
+    </form>
+    <hr class="my-4 border-slate-100">
+    <h4 class="font-semibold text-navy-900 mb-2">آخر الكشوفات</h4>
+    <div class="space-y-1 text-sm">
+      {% for r in runs %}
+      <a href="{{ url_for('payroll.view_run', run_id=r.id) }}" class="flex justify-between py-2 px-2 hover:bg-slate-50 rounded">
+        <span>{{ r.period_month }}/{{ r.period_year }}</span>
+        <span class="font-mono font-semibold">{{ "%.2f"|format(r.total_net) }}</span>
+      </a>
+      {% else %}
+      <div class="text-slate-400 text-center py-3">لا توجد كشوفات</div>
+      {% endfor %}
+    </div>
+  </div>
+</div>
+{% endblock %}
