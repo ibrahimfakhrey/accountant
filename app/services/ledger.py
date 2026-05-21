@@ -27,6 +27,9 @@ def post_journal(
     if not lines or len(lines) < 2:
         raise LedgerError("القيد يجب أن يحتوي على سطرين على الأقل")
 
+    if float(exchange_rate or 0) <= 0:
+        raise LedgerError("سعر الصرف يجب أن يكون أكبر من صفر")
+
     total_debit = sum(float(l.get("debit") or 0) for l in lines)
     total_credit = sum(float(l.get("credit") or 0) for l in lines)
 

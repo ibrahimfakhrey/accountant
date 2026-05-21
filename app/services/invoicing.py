@@ -101,8 +101,31 @@ def issue_refund(invoice, refund_type, amount=None, reason=None, created_by=None
         amount = float(amount)
 
     revenue = get_account_by_code(invoice.company_id, "4100")
+    vat_payable = get_account_by_code(invoice.company_id, "2120")
     ar = get_account_by_code(invoice.company_id, "1130")
     cash = get_account_by_code(invoice.company_id, "1110")
+
+    # Split the refund amount across Revenue (net) and VAT Payable (tax)
+    # using the same ratio as the original invoice. This mirrors the original
+    # posting (Cr Revenue=subtotal + Cr VAT=tax) so VAT is reclaimed correctly.
+    invoice_total = float(invoice.total or 0)
+    invoice_tax = float(invoice.tax_amount or 0)
+    if invoice_total > 0 and invoice_tax > 0 and vat_payable:
+        tax_ratio = invoice_tax / invoice_total
+        refund_tax = round(amount * tax_ratio, 2)
+        refund_net = round(amount - refund_tax, 2)
+    else:
+        refund_tax = 0.0
+        refund_net = amount
+
+    debit_lines = [{"account_id": revenue.id, "debit": refund_net, "credit": 0, "memo": "عكس إيراد"}]
+    if refund_tax > 0:
+        debit_lines.append({
+            "account_id": vat_payable.id,
+            "debit": refund_tax,
+            "credit": 0,
+            "memo": "عكس ضريبة قيمة مضافة",
+        })
 
     if refund_type == RefundType.CREDIT_NOTE:
         cn = CreditNote(
@@ -116,8 +139,7 @@ def issue_refund(invoice, refund_type, amount=None, reason=None, created_by=None
         entry = post_journal(
             company_id=invoice.company_id,
             description=f"Credit Note للعميل {invoice.customer.name} — فاتورة #{invoice.number}",
-            lines=[
-                {"account_id": revenue.id, "debit": amount, "credit": 0, "memo": "تخفيض إيراد"},
+            lines=debit_lines + [
                 {"account_id": ar.id, "debit": 0, "credit": amount, "memo": "رصيد دائن للعميل"},
             ],
             entry_date=date.today(),
@@ -133,8 +155,7 @@ def issue_refund(invoice, refund_type, amount=None, reason=None, created_by=None
             entry = post_journal(
                 company_id=invoice.company_id,
                 description=f"استرداد للعميل {invoice.customer.name} — فاتورة #{invoice.number}",
-                lines=[
-                    {"account_id": revenue.id, "debit": amount, "credit": 0, "memo": "عكس إيراد"},
+                lines=debit_lines + [
                     {"account_id": cash.id, "debit": 0, "credit": amount, "memo": "صرف نقدي للعميل"},
                 ],
                 entry_date=date.today(),
@@ -150,9 +171,8 @@ def issue_refund(invoice, refund_type, amount=None, reason=None, created_by=None
             entry = post_journal(
                 company_id=invoice.company_id,
                 description=f"إلغاء فاتورة #{invoice.number}",
-                lines=[
-                    {"account_id": revenue.id, "debit": amount, "credit": 0},
-                    {"account_id": ar.id, "debit": 0, "credit": amount},
+                lines=debit_lines + [
+                    {"account_id": ar.id, "debit": 0, "credit": amount, "memo": "إلغاء الذمم"},
                 ],
                 entry_date=date.today(),
                 reference=f"REF-{invoice.number}",

@@ -3,7 +3,7 @@ from flask import Blueprint, render_template, redirect, url_for, flash, request,
 from flask_login import login_required, current_user
 from app import db
 from app.models import FixedAsset, Account
-from app.services.assets import post_monthly_depreciation
+from app.services.assets import post_monthly_depreciation, post_asset_purchase
 from app.services.ledger import LedgerError
 
 bp = Blueprint("assets", __name__)
@@ -33,6 +33,7 @@ def new():
             salvage = float(request.form.get("salvage_value", 0))
             life = int(request.form.get("useful_life_years", 1))
             account_id = int(request.form.get("account_id"))
+            funding = request.form.get("funding", "cash")
             if life <= 0:
                 raise ValueError("العمر الإنتاجي يجب أن يكون أكبر من صفر")
             asset = FixedAsset(
@@ -45,10 +46,13 @@ def new():
                 account_id=account_id,
             )
             db.session.add(asset)
+            db.session.flush()
+            post_asset_purchase(asset, funding=funding, created_by=current_user.id)
             db.session.commit()
-            flash("تم تسجيل الأصل", "success")
+            flash("تم تسجيل الأصل وقيد الشراء", "success")
             return redirect(url_for("assets.index"))
-        except (ValueError, KeyError) as e:
+        except (ValueError, KeyError, LedgerError) as e:
+            db.session.rollback()
             flash(str(e), "error")
     return render_template("assets/form.html", fixed_accounts=fixed_accounts)
 
