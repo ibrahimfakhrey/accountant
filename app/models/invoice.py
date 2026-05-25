@@ -14,6 +14,12 @@ class InvoiceStatus(enum.Enum):
     PARTIALLY_REFUNDED = "PARTIALLY_REFUNDED"
 
 
+class DiscountType(enum.Enum):
+    NONE = "NONE"
+    PERCENT = "PERCENT"
+    FIXED = "FIXED"
+
+
 class Invoice(db.Model):
     __tablename__ = "invoices"
     id = db.Column(db.Integer, primary_key=True)
@@ -24,12 +30,21 @@ class Invoice(db.Model):
     due_date = db.Column(db.Date, nullable=False)
     currency = db.Column(db.String(3), default="SAR")
     subtotal = db.Column(db.Numeric(15, 4), default=0)
+    invoice_discount_type = db.Column(db.Enum(DiscountType), default=DiscountType.NONE)
+    invoice_discount_value = db.Column(db.Numeric(15, 4), default=0)
+    invoice_discount_amount = db.Column(db.Numeric(15, 4), default=0)  # resolved value
+    taxable_base = db.Column(db.Numeric(15, 4), default=0)
     tax_rate = db.Column(db.Numeric(5, 2), default=15.00)
     tax_amount = db.Column(db.Numeric(15, 4), default=0)
     total = db.Column(db.Numeric(15, 4), default=0)
     paid_amount = db.Column(db.Numeric(15, 4), default=0)
     status = db.Column(db.Enum(InvoiceStatus), default=InvoiceStatus.DRAFT, nullable=False)
-    notes = db.Column(db.Text)
+    notes = db.Column(db.Text)              # customer-facing
+    internal_notes = db.Column(db.Text)     # private to the company
+    send_reminders = db.Column(db.Boolean, default=True)
+    reminder_7d_sent_at = db.Column(db.DateTime)
+    reminder_3d_sent_at = db.Column(db.DateTime)
+    overdue_notified_at = db.Column(db.DateTime)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
     company = db.relationship("Company", backref=db.backref("invoices", lazy="dynamic"))
@@ -46,22 +61,61 @@ class Invoice(db.Model):
         return float(self.total or 0) - float(self.paid_amount or 0)
 
     def recalc(self):
-        self.subtotal = sum(float(i.quantity) * float(i.unit_price) for i in self.items)
-        self.tax_amount = float(self.subtotal) * float(self.tax_rate or 0) / 100.0
-        self.total = float(self.subtotal) + float(self.tax_amount)
+        """Compute totals respecting line-level and invoice-level discounts.
+        Tax is applied AFTER discounts (per Saudi/Egyptian VAT law).
+
+        Flow: line_subtotal → line_discount → items_total → invoice_discount
+              → taxable_base → tax_amount → total
+        """
+        items_total = 0.0
+        for item in self.items:
+            line_sub = float(item.quantity or 0) * float(item.unit_price or 0)
+            line_disc = _resolve_discount(item.discount_type, item.discount_value, line_sub)
+            item.line_total = line_sub - line_disc
+            items_total += item.line_total
+        self.subtotal = items_total
+
+        inv_disc = _resolve_discount(self.invoice_discount_type, self.invoice_discount_value, items_total)
+        self.invoice_discount_amount = inv_disc
+        self.taxable_base = items_total - inv_disc
+        self.tax_amount = float(self.taxable_base) * float(self.tax_rate or 0) / 100.0
+        self.total = float(self.taxable_base) + float(self.tax_amount)
+
+
+def _resolve_discount(dtype, value, base):
+    """Convert a discount spec to an absolute amount, clamped to [0, base]."""
+    if not dtype or dtype == DiscountType.NONE or not value:
+        return 0.0
+    v = float(value)
+    if dtype == DiscountType.PERCENT:
+        amt = base * v / 100.0
+    else:
+        amt = v
+    return max(0.0, min(amt, base))
 
 
 class InvoiceItem(db.Model):
     __tablename__ = "invoice_items"
     id = db.Column(db.Integer, primary_key=True)
     invoice_id = db.Column(db.Integer, db.ForeignKey("invoices.id"), nullable=False)
+    product_id = db.Column(db.Integer, db.ForeignKey("products.id"))
     description = db.Column(db.String(255), nullable=False)
     quantity = db.Column(db.Numeric(10, 2), default=1)
     unit_price = db.Column(db.Numeric(15, 4), default=0)
+    discount_type = db.Column(db.Enum(DiscountType), default=DiscountType.NONE)
+    discount_value = db.Column(db.Numeric(15, 4), default=0)
+    line_total = db.Column(db.Numeric(15, 4), default=0)
+
+    product = db.relationship("Product")
+
+    @property
+    def gross(self):
+        return float(self.quantity or 0) * float(self.unit_price or 0)
 
     @property
     def total(self):
-        return float(self.quantity) * float(self.unit_price)
+        # Backward-compat — pre-discount gross
+        return self.gross
 
 
 class Payment(db.Model):
@@ -70,7 +124,10 @@ class Payment(db.Model):
     invoice_id = db.Column(db.Integer, db.ForeignKey("invoices.id"), nullable=False)
     amount = db.Column(db.Numeric(15, 4), nullable=False)
     payment_date = db.Column(db.Date, default=date.today, nullable=False)
-    method = db.Column(db.String(30), default="cash")
+    payment_method_id = db.Column(db.Integer, db.ForeignKey("payment_methods.id"))
+    method = db.Column(db.String(30), default="cash")  # historical fallback
     notes = db.Column(db.Text)
     journal_entry_id = db.Column(db.Integer, db.ForeignKey("journal_entries.id"))
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    payment_method = db.relationship("PaymentMethod")

@@ -17,3 +17,12 @@ class Config:
     DEFAULT_CURRENCY = "SAR"
     SUPPORTED_CURRENCIES = ["SAR", "EGP", "USD", "EUR", "AED"]
     DEFAULT_LOCALE = "ar"
+
+    # SMTP — falls back to log-only mode if credentials missing
+    SMTP_HOST = os.environ.get("SMTP_HOST", "")
+    SMTP_PORT = int(os.environ.get("SMTP_PORT", 587))
+    SMTP_USER = os.environ.get("SMTP_USER", "")
+    SMTP_PASSWORD = os.environ.get("SMTP_PASSWORD", "")
+    SMTP_FROM = os.environ.get("SMTP_FROM", "no-reply@marsoud.app")
+    SMTP_FROM_NAME = os.environ.get("SMTP_FROM_NAME", "Marsoud")
+    SMTP_USE_TLS = os.environ.get("SMTP_USE_TLS", "true").lower() == "true"

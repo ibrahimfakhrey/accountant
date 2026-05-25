@@ -1,0 +1,44 @@
+{% extends "base.html" %}
+{% block page_title %}ملخص المصروفات{% endblock %}
+{% block content %}
+<div class="card p-6 mb-4">
+  <form method="GET" class="flex items-end gap-3">
+    <div><label class="block text-xs font-semibold text-slate-700 mb-1">من</label><input type="date" name="start_date" value="{{ start.isoformat() }}" class="input"></div>
+    <div><label class="block text-xs font-semibold text-slate-700 mb-1">إلى</label><input type="date" name="end_date" value="{{ end.isoformat() }}" class="input"></div>
+    <button type="submit" class="btn-primary">عرض</button>
+    <a href="{{ url_for('reports.export', report_type='expenses-summary', fmt='pdf', start_date=start.isoformat(), end_date=end.isoformat()) }}" class="btn-secondary">📄 PDF</a>
+    <a href="{{ url_for('reports.export', report_type='expenses-summary', fmt='excel', start_date=start.isoformat(), end_date=end.isoformat()) }}" class="btn-secondary">📊 Excel</a>
+  </form>
+</div>
+<div class="card p-8">
+  <div class="text-center mb-6">
+    <h2 class="text-2xl font-bold text-navy-900">{{ active_company.name }}</h2>
+    <div class="text-sm text-slate-500">ملخص المصروفات من {{ start.isoformat() }} إلى {{ end.isoformat() }}</div>
+  </div>
+  <table class="data-table max-w-4xl mx-auto">
+    <thead><tr><th>الكود</th><th>الحساب</th><th class="text-center">عدد القيود</th><th class="text-left">المبلغ</th></tr></thead>
+    <tbody>
+      {% for r in data.rows %}
+      <tr>
+        <td class="font-mono text-xs">{{ r.code }}</td>
+        <td>{{ r.name }}</td>
+        <td class="text-center">
+          {% if r.entry_count > 0 %}
+          <a href="{{ url_for('journals.index', account_id=r.id, start_date=start.isoformat(), end_date=end.isoformat()) }}"
+             class="badge bg-blue-50 text-blue-700 hover:bg-blue-100">{{ r.entry_count }} قيد ←</a>
+          {% else %}—{% endif %}
+        </td>
+        <td class="text-left font-mono">{{ "%.2f"|format(r.balance) }}</td>
+      </tr>
+      {% else %}
+      <tr><td colspan="4" class="text-center text-slate-400 py-6">لا توجد مصروفات في الفترة</td></tr>
+      {% endfor %}
+      <tr class="border-t-2 border-navy-900 font-bold bg-red-50">
+        <td colspan="3" class="py-3 text-red-800">إجمالي المصروفات</td>
+        <td class="text-left font-mono text-lg text-red-700">{{ "%.2f"|format(data.total) }}</td>
+      </tr>
+    </tbody>
+  </table>
+  <p class="text-xs text-center text-slate-400 mt-4">⚠ هذا الرقم يطابق Expenses في قائمة الدخل · اضغط على عدد القيود للتفاصيل</p>
+</div>
+{% endblock %}

@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block page_title %}فاتورة جديدة{% endblock %}
+{% block page_title %}{% if invoice %}تعديل فاتورة {{ invoice.number }}{% else %}فاتورة جديدة{% endif %}{% endblock %}
 {% block content %}
 <form method="POST" class="space-y-4">
   <div class="card p-6">
@@ -8,27 +8,30 @@
         <label class="block text-sm font-semibold text-slate-700 mb-2">العميل</label>
         <select name="customer_id" required class="select">
           <option value="">— اختر —</option>
-          {% for c in customers %}<option value="{{ c.id }}">{{ c.name }}</option>{% endfor %}
+          {% for c in customers %}<option value="{{ c.id }}" {% if invoice and invoice.customer_id == c.id %}selected{% endif %}>{{ c.name }}</option>{% endfor %}
         </select>
         {% if not customers %}<p class="text-xs text-amber-600 mt-1">لا يوجد عملاء. <a href="{{ url_for('customers.new') }}" class="underline">أضف عميل</a></p>{% endif %}
       </div>
       <div>
         <label class="block text-sm font-semibold text-slate-700 mb-2">تاريخ الإصدار</label>
-        <input type="date" name="issue_date" id="issue_date" required class="input">
+        <input type="date" name="issue_date" id="issue_date" value="{{ invoice.issue_date.isoformat() if invoice else '' }}" required class="input">
       </div>
       <div>
         <label class="block text-sm font-semibold text-slate-700 mb-2">تاريخ الاستحقاق</label>
-        <input type="date" name="due_date" id="due_date" required class="input">
+        <input type="date" name="due_date" id="due_date" value="{{ invoice.due_date.isoformat() if invoice else '' }}" required class="input">
       </div>
     </div>
     <div class="grid grid-cols-2 gap-4 mt-4">
       <div>
-        <label class="block text-sm font-semibold text-slate-700 mb-2">نسبة الضريبة %</label>
-        <input type="number" name="tax_rate" step="0.01" value="{{ active_company.vat_rate or 15 }}" class="input" id="tax_rate" oninput="calcTotals()">
+        <label class="block text-sm font-semibold text-slate-700 mb-2">
+          نسبة الضريبة %
+          <span class="text-xs text-slate-400 font-normal">(افتراضي من إعدادات الشركة: {{ active_company.vat_rate }}%)</span>
+        </label>
+        <input type="number" name="tax_rate" id="tax_rate" step="0.01" value="{{ invoice.tax_rate if invoice else (active_company.vat_rate or 15) }}" class="input" oninput="calcTotals()">
       </div>
       <div>
-        <label class="block text-sm font-semibold text-slate-700 mb-2">ملاحظات</label>
-        <input type="text" name="notes" class="input">
+        <label class="block text-sm font-semibold text-slate-700 mb-2">ملاحظات للعميل (تظهر على الفاتورة)</label>
+        <input type="text" name="notes" value="{{ invoice.notes or '' if invoice else '' }}" class="input">
       </div>
     </div>
   </div>
@@ -36,57 +39,189 @@
   <div class="card p-6">
     <div class="flex items-center justify-between mb-3">
       <h3 class="font-bold text-navy-900">البنود</h3>
-      <button type="button" onclick="addItem()" class="btn-secondary text-sm">+ بند</button>
+      <div class="flex gap-2">
+        <button type="button" onclick="addItem()" class="btn-secondary text-sm">+ بند</button>
+      </div>
     </div>
-    <table class="data-table">
-      <thead><tr><th>الوصف</th><th>الكمية</th><th>سعر الوحدة</th><th class="text-left">الإجمالي</th><th></th></tr></thead>
+    <table class="data-table" id="items-table">
+      <thead><tr>
+        <th style="width:30%">المنتج / الوصف</th>
+        <th>الكمية</th>
+        <th>السعر</th>
+        <th>الخصم</th>
+        <th class="text-left">الصافي</th>
+        <th></th>
+      </tr></thead>
       <tbody id="items-body"></tbody>
       <tfoot>
-        <tr><td colspan="3" class="text-left font-semibold py-2">المجموع قبل الضريبة</td><td class="text-left font-mono" id="subtotal">0.00</td><td></td></tr>
-        <tr><td colspan="3" class="text-left font-semibold py-2">الضريبة</td><td class="text-left font-mono" id="tax">0.00</td><td></td></tr>
-        <tr class="border-t-2 border-navy-900"><td colspan="3" class="text-left font-bold py-3">الإجمالي</td><td class="text-left font-mono font-bold" id="total">0.00</td><td></td></tr>
+        <tr><td colspan="4" class="text-left font-semibold py-2">إجمالي البنود</td><td class="text-left font-mono" id="items-total">0.00</td><td></td></tr>
+        <tr>
+          <td colspan="2" class="text-left font-semibold py-2 text-amber-700">خصم على الفاتورة</td>
+          <td>
+            <select name="invoice_discount_type" class="select text-sm" onchange="calcTotals()">
+              <option value="NONE" {% if not invoice or invoice.invoice_discount_type.value == 'NONE' %}selected{% endif %}>—</option>
+              <option value="PERCENT" {% if invoice and invoice.invoice_discount_type.value == 'PERCENT' %}selected{% endif %}>%</option>
+              <option value="FIXED" {% if invoice and invoice.invoice_discount_type.value == 'FIXED' %}selected{% endif %}>مبلغ ثابت</option>
+            </select>
+          </td>
+          <td><input type="number" name="invoice_discount_value" step="0.01" value="{{ invoice.invoice_discount_value if invoice else 0 }}" class="input text-sm font-mono" oninput="calcTotals()"></td>
+          <td class="text-left font-mono text-amber-600" id="invoice-discount-amt">0.00</td>
+          <td></td>
+        </tr>
+        <tr><td colspan="4" class="text-left py-2">الوعاء الضريبي</td><td class="text-left font-mono" id="taxable-base">0.00</td><td></td></tr>
+        <tr><td colspan="4" class="text-left py-2">الضريبة</td><td class="text-left font-mono" id="tax">0.00</td><td></td></tr>
+        <tr class="border-t-2 border-navy-900"><td colspan="4" class="text-left font-bold py-3">الإجمالي</td><td class="text-left font-mono font-bold" id="total">0.00</td><td></td></tr>
       </tfoot>
     </table>
   </div>
 
+  <div class="card p-6">
+    <h3 class="font-bold text-navy-900 mb-3">ملاحظات داخلية</h3>
+    <textarea name="internal_notes" rows="2" placeholder="ملاحظات لفريقك فقط — لن تظهر للعميل" class="textarea">{{ invoice.internal_notes or '' if invoice else '' }}</textarea>
+  </div>
+
+  <div class="card p-4 flex items-center justify-between bg-sky-50/50 border-sky-100">
+    <div class="flex items-center gap-6">
+      <label class="flex items-center gap-2 text-sm text-navy-900 cursor-pointer">
+        <input type="checkbox" name="email_customer" value="1" checked class="w-4 h-4 rounded text-brand-600">
+        <span>📧 إرسال إيميل للعميل عند الإرسال</span>
+      </label>
+      <label class="flex items-center gap-2 text-sm text-navy-900 cursor-pointer">
+        <input type="checkbox" name="send_reminders" value="1" {% if not invoice or invoice.send_reminders %}checked{% endif %} class="w-4 h-4 rounded text-brand-600">
+        <span>🔔 تذكيرات تلقائية (7 أيام، 3 أيام، يوم الاستحقاق)</span>
+      </label>
+    </div>
+  </div>
+
   <div class="flex justify-end gap-2">
     <a href="{{ url_for('invoices.index') }}" class="btn-secondary">إلغاء</a>
+    {% if invoice %}
+    <button type="submit" name="send" value="0" class="btn-primary">حفظ التعديلات</button>
+    {% else %}
     <button type="submit" name="send" value="0" class="btn-secondary">حفظ كمسودة</button>
     <button type="submit" name="send" value="1" class="btn-primary">إرسال + تسجيل قيد</button>
+    {% endif %}
   </div>
 </form>
 
 <script>
-function addItem() {
+let products = [];
+const existingItems = [
+  {% if invoice %}
+    {% for i in invoice.items %}
+    {
+      description: {{ i.description | tojson }},
+      quantity: {{ i.quantity | float }},
+      unit_price: {{ i.unit_price | float }},
+      product_id: {{ i.product_id or 'null' }},
+      discount_type: "{{ i.discount_type.value if i.discount_type else 'NONE' }}",
+      discount_value: {{ i.discount_value | float }},
+    }{% if not loop.last %},{% endif %}
+    {% endfor %}
+  {% endif %}
+];
+
+async function loadProducts() {
+  try {
+    const res = await fetch('/products/api/list');
+    products = await res.json();
+  } catch (e) { products = []; }
+}
+
+function addItem(prefill) {
   const tbody = document.getElementById('items-body');
   const tr = document.createElement('tr');
+  const productOptions = ['<option value="">— اختر منتج / اكتب يدوياً —</option>']
+    .concat(products.map(p => `<option value="${p.id}" data-price="${p.price}" data-name="${escapeAttr(p.name)}">${escapeHtml(p.name)}</option>`))
+    .join('');
   tr.innerHTML = `
-    <td><input type="text" name="item_description[]" required class="input text-sm"></td>
-    <td><input type="number" name="item_quantity[]" step="0.01" value="1" required class="input text-sm font-mono" oninput="calcTotals()" style="width:6rem"></td>
-    <td><input type="number" name="item_unit_price[]" step="0.01" value="0" required class="input text-sm font-mono" oninput="calcTotals()" style="width:8rem"></td>
+    <td>
+      <select name="item_product_id[]" class="select text-sm mb-1" onchange="onProductPick(this)">
+        ${productOptions}
+      </select>
+      <input type="text" name="item_description[]" required value="${escapeAttr(prefill?.description || '')}" placeholder="أو اكتب الوصف يدوياً" class="input text-sm">
+    </td>
+    <td><input type="number" name="item_quantity[]" step="0.01" value="${prefill?.quantity || 1}" required class="input text-sm font-mono" oninput="calcTotals()" style="width:5rem"></td>
+    <td><input type="number" name="item_unit_price[]" step="0.01" value="${prefill?.unit_price || 0}" required class="input text-sm font-mono" oninput="calcTotals()" style="width:7rem"></td>
+    <td>
+      <div class="flex gap-1">
+        <select name="item_discount_type[]" class="select text-xs" onchange="calcTotals()" style="width:4.5rem">
+          <option value="NONE">—</option>
+          <option value="PERCENT" ${prefill?.discount_type === 'PERCENT' ? 'selected' : ''}>%</option>
+          <option value="FIXED" ${prefill?.discount_type === 'FIXED' ? 'selected' : ''}>$</option>
+        </select>
+        <input type="number" name="item_discount_value[]" step="0.01" value="${prefill?.discount_value || 0}" class="input text-xs font-mono" oninput="calcTotals()" style="width:4.5rem">
+      </div>
+    </td>
     <td class="text-left font-mono line-total">0.00</td>
     <td><button type="button" onclick="this.closest('tr').remove(); calcTotals()" class="text-red-500">×</button></td>
   `;
   tbody.appendChild(tr);
+  if (prefill?.product_id) {
+    tr.querySelector('select[name="item_product_id[]"]').value = prefill.product_id;
+  }
+  calcTotals();
 }
+
+function onProductPick(sel) {
+  const opt = sel.options[sel.selectedIndex];
+  if (!opt.value) return;
+  const tr = sel.closest('tr');
+  tr.querySelector('input[name="item_description[]"]').value = opt.dataset.name || '';
+  tr.querySelector('input[name="item_unit_price[]"]').value = opt.dataset.price || 0;
+  calcTotals();
+}
+
+function resolveDiscount(type, value, base) {
+  if (type === 'NONE' || !value) return 0;
+  const v = parseFloat(value || 0);
+  const amt = type === 'PERCENT' ? base * v / 100 : v;
+  return Math.max(0, Math.min(amt, base));
+}
+
 function calcTotals() {
-  let sub = 0;
+  let itemsTotal = 0;
   document.querySelectorAll('#items-body tr').forEach(tr => {
     const q = parseFloat(tr.querySelector('input[name="item_quantity[]"]').value || 0);
     const p = parseFloat(tr.querySelector('input[name="item_unit_price[]"]').value || 0);
-    const lt = q * p;
+    const dt = tr.querySelector('select[name="item_discount_type[]"]').value;
+    const dv = tr.querySelector('input[name="item_discount_value[]"]').value;
+    const gross = q * p;
+    const disc = resolveDiscount(dt, dv, gross);
+    const lt = gross - disc;
     tr.querySelector('.line-total').textContent = lt.toFixed(2);
-    sub += lt;
+    itemsTotal += lt;
   });
-  const tr = parseFloat(document.getElementById('tax_rate').value || 0);
-  const tax = sub * tr / 100;
-  document.getElementById('subtotal').textContent = sub.toFixed(2);
+  const invDt = document.querySelector('select[name="invoice_discount_type"]').value;
+  const invDv = document.querySelector('input[name="invoice_discount_value"]').value;
+  const invDiscount = resolveDiscount(invDt, invDv, itemsTotal);
+  const taxableBase = itemsTotal - invDiscount;
+  const taxRate = parseFloat(document.getElementById('tax_rate').value || 0);
+  const tax = taxableBase * taxRate / 100;
+  document.getElementById('items-total').textContent = itemsTotal.toFixed(2);
+  document.getElementById('invoice-discount-amt').textContent = invDiscount.toFixed(2);
+  document.getElementById('taxable-base').textContent = taxableBase.toFixed(2);
   document.getElementById('tax').textContent = tax.toFixed(2);
-  document.getElementById('total').textContent = (sub + tax).toFixed(2);
+  document.getElementById('total').textContent = (taxableBase + tax).toFixed(2);
 }
-const today = new Date(); document.getElementById('issue_date').value = today.toISOString().split('T')[0];
-const due = new Date(today); due.setDate(due.getDate() + 30);
-document.getElementById('due_date').value = due.toISOString().split('T')[0];
-addItem();
+
+function escapeHtml(s) { return (s||'').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+function escapeAttr(s) { return escapeHtml(s); }
+
+(async () => {
+  await loadProducts();
+  if (existingItems.length > 0) {
+    existingItems.forEach(i => addItem({
+      description: i.description, quantity: i.quantity, unit_price: i.unit_price,
+      product_id: i.product_id, discount_type: (i.discount_type && i.discount_type.value) || 'NONE',
+      discount_value: i.discount_value,
+    }));
+  } else {
+    addItem();
+    const today = new Date(); document.getElementById('issue_date').value = today.toISOString().split('T')[0];
+    const due = new Date(today); due.setDate(due.getDate() + 30);
+    document.getElementById('due_date').value = due.toISOString().split('T')[0];
+  }
+})();
 </script>
 {% endblock %}

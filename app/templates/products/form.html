@@ -1,0 +1,36 @@
+{% extends "base.html" %}
+{% block page_title %}منتج/خدمة جديد{% endblock %}
+{% block content %}
+<div class="card p-6 max-w-2xl">
+  <form method="POST" class="space-y-4">
+    <div class="grid grid-cols-2 gap-4">
+      <div>
+        <label class="block text-sm font-semibold text-slate-700 mb-2">الاسم</label>
+        <input type="text" name="name" required class="input">
+      </div>
+      <div>
+        <label class="block text-sm font-semibold text-slate-700 mb-2">SKU (اختياري)</label>
+        <input type="text" name="sku" class="input font-mono">
+      </div>
+    </div>
+    <div>
+      <label class="block text-sm font-semibold text-slate-700 mb-2">الوصف</label>
+      <textarea name="description" rows="2" class="textarea"></textarea>
+    </div>
+    <div class="grid grid-cols-2 gap-4">
+      <div>
+        <label class="block text-sm font-semibold text-slate-700 mb-2">السعر الافتراضي</label>
+        <input type="number" name="default_price" step="0.01" value="0" class="input font-mono">
+      </div>
+      <div>
+        <label class="block text-sm font-semibold text-slate-700 mb-2">الضريبة الافتراضية % (اختياري)</label>
+        <input type="number" name="default_tax_rate" step="0.01" class="input font-mono" placeholder="يستخدم الشركة الافتراضية">
+      </div>
+    </div>
+    <div class="flex justify-end gap-2 pt-2">
+      <a href="{{ url_for('products.index') }}" class="btn-secondary">إلغاء</a>
+      <button type="submit" class="btn-primary">إضافة</button>
+    </div>
+  </form>
+</div>
+{% endblock %}

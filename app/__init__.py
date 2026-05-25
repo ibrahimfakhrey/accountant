@@ -36,6 +36,10 @@ def create_app(config_class=Config):
     from app.routes.payroll import bp as payroll_bp
     from app.routes.reports import bp as reports_bp
     from app.routes.agent import bp as agent_bp
+    from app.routes.cron import bp as cron_bp
+    from app.routes.products import bp as products_bp
+    from app.routes.payment_methods import bp as pmethods_bp
+    from app.routes.vendor_bills import bp as vbills_bp
 
     app.register_blueprint(auth_bp)
     app.register_blueprint(dashboard_bp)
@@ -49,6 +53,10 @@ def create_app(config_class=Config):
     app.register_blueprint(payroll_bp, url_prefix="/payroll")
     app.register_blueprint(reports_bp, url_prefix="/reports")
     app.register_blueprint(agent_bp, url_prefix="/agent")
+    app.register_blueprint(cron_bp, url_prefix="/cron")
+    app.register_blueprint(products_bp, url_prefix="/products")
+    app.register_blueprint(pmethods_bp, url_prefix="/payment-methods")
+    app.register_blueprint(vbills_bp, url_prefix="/vendor-bills")
 
     @app.before_request
     def load_active_company():
@@ -81,8 +89,5 @@ def create_app(config_class=Config):
             return f"{float(value):,.2f}"
         except (TypeError, ValueError):
             return str(value)
-
-    with app.app_context():
-        db.create_all()
 
     return app

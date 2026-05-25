@@ -1,41 +1,107 @@
 {% extends "base.html" %}
-{% block page_title %}قيد #{{ entry.id }}{% endblock %}
+{% block page_title %}قيد {{ entry.number or '#' + entry.id|string }}{% endblock %}
 {% block content %}
-<div class="card p-6 mb-4">
-  <div class="flex items-start justify-between mb-4">
-    <div>
-      <div class="text-xs text-slate-500 mb-1">قيد محاسبي</div>
-      <h2 class="text-xl font-bold text-navy-900">{{ entry.description }}</h2>
-      <div class="text-sm text-slate-500 mt-1">
-        {{ entry.date.isoformat() }} · {{ entry.currency }}
-        {% if entry.reference %} · مرجع: {{ entry.reference }}{% endif %}
-        {% if entry.is_reversal %} · <span class="badge badge-cancelled">قيد عكسي</span>{% endif %}
+<div class="grid grid-cols-3 gap-4">
+  <div class="card p-6 col-span-2">
+    <div class="flex items-start justify-between mb-4">
+      <div>
+        <div class="text-xs text-slate-500 mb-1 font-mono">{{ entry.number or '#' + entry.id|string }}</div>
+        <h2 class="text-xl font-bold text-navy-900">{{ entry.description }}</h2>
+        <div class="text-sm text-slate-500 mt-1">
+          {{ entry.date.isoformat() }} · {{ entry.currency }}
+          {% if entry.reference %} · مرجع: {{ entry.reference }}{% endif %}
+        </div>
+        <div class="flex gap-2 mt-2">
+          {% if entry.is_reversal %}<span class="badge bg-purple-100 text-purple-700">عكسي</span>{% endif %}
+          {% if not entry.is_active %}<span class="badge bg-red-100 text-red-700">موقوف</span>{% else %}<span class="badge badge-paid">نشط</span>{% endif %}
+          {% if source_label %}<a href="{{ source_link }}" class="badge bg-blue-100 text-blue-700 hover:bg-blue-200">🔗 {{ source_label }}</a>{% endif %}
+        </div>
+      </div>
+      <div class="flex flex-col gap-1 text-xs text-left text-slate-500">
+        {% if entry.creator %}<div>أنشأ بواسطة: <span class="text-navy-900 font-semibold">{{ entry.creator.full_name }}</span></div>{% endif %}
+        <div>{{ entry.created_at.strftime('%Y-%m-%d %H:%M') }}</div>
+        <div class="flex gap-1 mt-1">
+          <a href="{{ url_for('journals.export_entry', entry_id=entry.id, fmt='pdf') }}" class="btn-secondary text-xs">📄 PDF</a>
+          <a href="{{ url_for('journals.export_entry', entry_id=entry.id, fmt='excel') }}" class="btn-secondary text-xs">📊 Excel</a>
+        </div>
       </div>
     </div>
-    {% if not entry.is_reversal %}
-    <form method="POST" action="{{ url_for('journals.reverse', entry_id=entry.id) }}" onsubmit="return confirm('إنشاء قيد عكسي؟')">
-      <button type="submit" class="btn-secondary text-sm">إنشاء قيد عكسي</button>
-    </form>
+
+    <table class="data-table">
+      <thead><tr><th>الحساب</th><th>المذكرة</th><th class="text-left">مدين</th><th class="text-left">دائن</th></tr></thead>
+      <tbody>
+        {% for line in entry.lines %}
+        <tr>
+          <td><span class="font-mono text-xs text-slate-500">{{ line.account.code }}</span> · {{ line.account.name_ar or line.account.name }}</td>
+          <td class="text-xs text-slate-500">{{ line.memo or '' }}</td>
+          <td class="text-left font-mono">{{ "%.2f"|format(line.debit) }}</td>
+          <td class="text-left font-mono">{{ "%.2f"|format(line.credit) }}</td>
+        </tr>
+        {% endfor %}
+        <tr class="font-bold border-t-2 border-navy-900">
+          <td colspan="2" class="text-left py-3">الإجمالي</td>
+          <td class="text-left font-mono">{{ "%.2f"|format(entry.total_debit) }}</td>
+          <td class="text-left font-mono">{{ "%.2f"|format(entry.total_credit) }}</td>
+        </tr>
+      </tbody>
+    </table>
+
+    {% if not entry.is_active and entry.pause_reason %}
+    <div class="mt-5 bg-red-50 border border-red-200 rounded-xl p-4">
+      <div class="text-xs text-red-800 font-semibold mb-1">🔒 سبب الإيقاف</div>
+      <div class="text-sm text-red-900">{{ entry.pause_reason }}</div>
+      <div class="text-xs text-red-700 mt-1">بواسطة: {{ entry.paused_by.full_name if entry.paused_by else '—' }} · {{ entry.paused_at.strftime('%Y-%m-%d %H:%M') if entry.paused_at else '' }}</div>
+    </div>
+    {% endif %}
+
+    {% if entry.is_active and entry.reactivate_reason %}
+    <div class="mt-5 bg-emerald-50 border border-emerald-200 rounded-xl p-4">
+      <div class="text-xs text-emerald-800 font-semibold mb-1">↻ سبب إعادة التنشيط</div>
+      <div class="text-sm text-emerald-900">{{ entry.reactivate_reason }}</div>
+      <div class="text-xs text-emerald-700 mt-1">بواسطة: {{ entry.reactivated_by.full_name if entry.reactivated_by else '—' }} · {{ entry.reactivated_at.strftime('%Y-%m-%d %H:%M') if entry.reactivated_at else '' }}</div>
+    </div>
     {% endif %}
   </div>
 
-  <table class="data-table">
-    <thead><tr><th>الحساب</th><th>المذكرة</th><th class="text-left">مدين</th><th class="text-left">دائن</th></tr></thead>
-    <tbody>
-      {% for line in entry.lines %}
-      <tr>
-        <td><span class="font-mono text-xs text-slate-500">{{ line.account.code }}</span> · {{ line.account.name_ar or line.account.name }}</td>
-        <td class="text-xs text-slate-500">{{ line.memo or '' }}</td>
-        <td class="text-left font-mono">{{ "%.2f"|format(line.debit) }}</td>
-        <td class="text-left font-mono">{{ "%.2f"|format(line.credit) }}</td>
-      </tr>
-      {% endfor %}
-      <tr class="font-bold border-t-2 border-navy-900">
-        <td colspan="2" class="text-left py-3">الإجمالي</td>
-        <td class="text-left font-mono">{{ "%.2f"|format(entry.total_debit) }}</td>
-        <td class="text-left font-mono">{{ "%.2f"|format(entry.total_credit) }}</td>
-      </tr>
-    </tbody>
-  </table>
+  <div class="space-y-4">
+    {% if not entry.is_reversal and entry.is_active %}
+    <div class="card p-5">
+      <h3 class="font-bold text-navy-900 mb-3">إجراءات</h3>
+      <form method="POST" action="{{ url_for('journals.reverse', entry_id=entry.id) }}" onsubmit="return confirm('إنشاء قيد عكسي؟')" class="mb-3">
+        <button type="submit" class="btn-secondary w-full text-sm">↺ إنشاء قيد عكسي</button>
+      </form>
+      <form method="POST" action="{{ url_for('journals.pause', entry_id=entry.id) }}" class="space-y-2">
+        <textarea name="reason" rows="2" required placeholder="سبب الإيقاف (إلزامي)" class="textarea text-sm"></textarea>
+        <button type="submit" class="btn-danger w-full text-sm">⏸ إيقاف القيد</button>
+      </form>
+    </div>
+    {% elif not entry.is_active %}
+    <div class="card p-5 bg-emerald-50/30 border-emerald-100">
+      <h3 class="font-bold text-emerald-800 mb-3">إعادة التنشيط</h3>
+      <form method="POST" action="{{ url_for('journals.reactivate', entry_id=entry.id) }}" class="space-y-2">
+        <textarea name="reason" rows="2" required placeholder="سبب إعادة التنشيط (إلزامي)" class="textarea text-sm"></textarea>
+        <button type="submit" class="btn-accent w-full text-sm">↻ إعادة تنشيط</button>
+      </form>
+    </div>
+    {% endif %}
+
+    {% if audits %}
+    <div class="card p-5">
+      <h3 class="font-bold text-navy-900 mb-3">سجل التعديلات</h3>
+      <div class="space-y-3 text-sm">
+        {% for a in audits %}
+        <div class="border-r-2 border-slate-200 pr-3">
+          <div class="flex items-center justify-between">
+            <span class="font-semibold text-navy-900">{{ a.action.value }}</span>
+            <span class="text-xs text-slate-500">{{ a.created_at.strftime('%Y-%m-%d %H:%M') }}</span>
+          </div>
+          {% if a.user %}<div class="text-xs text-slate-500">بواسطة: {{ a.user.full_name }}</div>{% endif %}
+          {% if a.reason %}<div class="text-xs text-slate-600 mt-1">{{ a.reason }}</div>{% endif %}
+        </div>
+        {% endfor %}
+      </div>
+    </div>
+    {% endif %}
+  </div>
 </div>
 {% endblock %}

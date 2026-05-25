@@ -2,7 +2,7 @@ from datetime import datetime, date
 from flask import Blueprint, render_template, redirect, url_for, flash, request, g
 from flask_login import login_required, current_user
 from app import db
-from app.models import FixedAsset, Account
+from app.models import FixedAsset, DepreciationEntry, Account, Vendor
 from app.services.assets import post_monthly_depreciation, post_asset_purchase
 from app.services.ledger import LedgerError
 
@@ -14,8 +14,39 @@ bp = Blueprint("assets", __name__)
 def index():
     if not g.active_company:
         return redirect(url_for("companies.new"))
-    assets = FixedAsset.query.filter_by(company_id=g.active_company.id).order_by(FixedAsset.created_at.desc()).all()
-    return render_template("assets/index.html", assets=assets)
+
+    today = date.today()
+    q = FixedAsset.query.filter_by(company_id=g.active_company.id)
+
+    # Filters
+    status_filter = request.args.get("status")
+    type_filter = request.args.get("type")
+    if type_filter:
+        q = q.filter(FixedAsset.account_id == int(type_filter))
+
+    assets = q.order_by(FixedAsset.created_at.desc()).all()
+
+    # Compute "depreciated this month" status per asset (in Python — cheap for typical sizes)
+    period_status = {
+        a.id: a.depreciated_for_period(today.year, today.month) for a in assets
+    }
+    # Status filter applied after computing
+    if status_filter == "done":
+        assets = [a for a in assets if period_status[a.id]]
+    elif status_filter == "pending":
+        assets = [a for a in assets if not period_status[a.id]]
+
+    asset_accounts = Account.query.filter(
+        Account.company_id == g.active_company.id,
+        Account.code.like("12%"),
+    ).order_by(Account.code).all()
+
+    return render_template(
+        "assets/index.html",
+        assets=assets, period_status=period_status,
+        asset_accounts=asset_accounts,
+        current_year=today.year, current_month=today.month,
+    )
 
 
 @bp.route("/new", methods=["GET", "POST"])
@@ -24,7 +55,9 @@ def new():
     fixed_accounts = Account.query.filter(
         Account.company_id == g.active_company.id,
         Account.code.like("12%"),
+        Account.code != "1290",   # don't allow posting cost to accumulated depreciation
     ).all()
+    vendors = Vendor.query.filter_by(company_id=g.active_company.id, is_active=True).order_by(Vendor.name).all()
     if request.method == "POST":
         try:
             name = request.form.get("name", "").strip()
@@ -34,6 +67,7 @@ def new():
             life = int(request.form.get("useful_life_years", 1))
             account_id = int(request.form.get("account_id"))
             funding = request.form.get("funding", "cash")
+            vendor_id = request.form.get("vendor_id") or None
             if life <= 0:
                 raise ValueError("العمر الإنتاجي يجب أن يكون أكبر من صفر")
             asset = FixedAsset(
@@ -44,29 +78,60 @@ def new():
                 salvage_value=salvage,
                 useful_life_years=life,
                 account_id=account_id,
+                vendor_id=int(vendor_id) if vendor_id else None,
             )
             db.session.add(asset)
             db.session.flush()
             post_asset_purchase(asset, funding=funding, created_by=current_user.id)
             db.session.commit()
             flash("تم تسجيل الأصل وقيد الشراء", "success")
-            return redirect(url_for("assets.index"))
+            return redirect(url_for("assets.view", asset_id=asset.id))
         except (ValueError, KeyError, LedgerError) as e:
             db.session.rollback()
             flash(str(e), "error")
-    return render_template("assets/form.html", fixed_accounts=fixed_accounts)
+    return render_template("assets/form.html", fixed_accounts=fixed_accounts, vendors=vendors)
+
+
+@bp.route("/<int:asset_id>")
+@login_required
+def view(asset_id):
+    asset = db.session.get(FixedAsset, asset_id)
+    if not asset or asset.company_id != g.active_company.id:
+        return redirect(url_for("assets.index"))
+    history = DepreciationEntry.query.filter_by(asset_id=asset.id).order_by(
+        DepreciationEntry.period_year, DepreciationEntry.period_month
+    ).all()
+    return render_template("assets/view.html", asset=asset, history=history)
 
 
 @bp.route("/depreciate", methods=["POST"])
 @login_required
 def depreciate():
     today = date.today()
+    year = int(request.form.get("year", today.year))
+    month = int(request.form.get("month", today.month))
     try:
-        entry = post_monthly_depreciation(g.active_company.id, today.year, today.month, created_by=current_user.id)
-        if entry:
-            flash("تم تسجيل قيد الاستهلاك الشهري", "success")
+        result = post_monthly_depreciation(
+            g.active_company.id, year, month, created_by=current_user.id
+        )
+        processed = result["processed"]
+        skipped = result["skipped"]
+
+        if processed and skipped:
+            names_done = "، ".join(n for n, _ in processed)
+            names_skip = "، ".join(skipped)
+            flash(
+                f"تم تسجيل إهلاك الأصول: {names_done} — "
+                f"الأصول التالية سبق تسجيل إهلاكها هذا الشهر: {names_skip}",
+                "success"
+            )
+        elif processed:
+            names_done = "، ".join(n for n, _ in processed)
+            flash(f"تم تسجيل إهلاك {len(processed)} أصل: {names_done} (إجمالي {result['total_amount']:.2f})", "success")
+        elif skipped:
+            flash(f"كل الأصول لها إهلاك مسجل لشهر {month}/{year} بالفعل — لا يوجد ما يجب تسجيله", "info")
         else:
-            flash("لا يوجد استهلاك للتسجيل", "info")
+            flash("لا توجد أصول قابلة للإهلاك", "info")
     except LedgerError as e:
         flash(str(e), "error")
     return redirect(url_for("assets.index"))

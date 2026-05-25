@@ -1,8 +1,19 @@
 """Invoice posting logic — when an invoice is sent or paid, post journals automatically."""
 from datetime import date
 from app import db
-from app.models import Invoice, InvoiceStatus, Payment, Account, Refund, RefundType, CreditNote
+from app.models import Invoice, InvoiceStatus, Payment, Account, Refund, RefundType, CreditNote, PaymentMethod
 from app.services.ledger import post_journal, reverse_journal, get_account_by_code, LedgerError
+
+
+def send_invoice_notification(invoice):
+    """Wrapper: emails customer when invoice is sent. Safe — logs on failure."""
+    try:
+        from app.services.email import send_invoice_email
+        return send_invoice_email(invoice, attach_pdf=True)
+    except Exception:
+        import logging
+        logging.getLogger("ledgeros.invoicing").exception("Failed to send invoice email")
+        return False
 
 
 def post_invoice_to_ledger(invoice, created_by=None):
@@ -13,9 +24,12 @@ def post_invoice_to_ledger(invoice, created_by=None):
     if not ar or not revenue:
         raise LedgerError("شجرة الحسابات الافتراضية ناقصة (1130 / 4100)")
 
+    # Revenue is credited at the taxable_base (subtotal AFTER invoice-level discount).
+    # This keeps the journal balanced: Dr AR (total) = Cr Revenue (net) + Cr VAT (tax).
+    revenue_credit = float(invoice.taxable_base if invoice.taxable_base else invoice.subtotal)
     lines = [
-        {"account_id": ar.id, "debit": float(invoice.total), "credit": 0, "memo": f"فاتورة #{invoice.number}"},
-        {"account_id": revenue.id, "debit": 0, "credit": float(invoice.subtotal), "memo": "إيراد"},
+        {"account_id": ar.id, "debit": float(invoice.total), "credit": 0, "memo": f"فاتورة {invoice.number}"},
+        {"account_id": revenue.id, "debit": 0, "credit": revenue_credit, "memo": "إيراد (صافي بعد الخصم)"},
     ]
     if float(invoice.tax_amount or 0) > 0.001 and vat_payable:
         lines.append({
@@ -38,25 +52,40 @@ def post_invoice_to_ledger(invoice, created_by=None):
     )
 
 
-def record_payment(invoice, amount, payment_date=None, method="cash", created_by=None):
-    """Record a payment: Dr Cash/Bank / Cr Accounts Receivable. Updates invoice status."""
+def record_payment(invoice, amount, payment_date=None, method=None, payment_method_id=None, created_by=None, notify=True):
+    """Record a payment posting Dr <method.account> / Cr AR. Resolves the receiving
+    account either from a PaymentMethod row (preferred) or from the legacy
+    'cash'/'bank' string.
+    """
     amount = float(amount)
     if amount <= 0:
         raise LedgerError("المبلغ يجب أن يكون أكبر من صفر")
     if amount > invoice.balance + 0.01:
         raise LedgerError(f"المبلغ ({amount:.2f}) أكبر من الرصيد المتبقي ({invoice.balance:.2f})")
 
-    cash_code = "1110" if method == "cash" else "1120"
-    cash = get_account_by_code(invoice.company_id, cash_code)
+    pm = None
+    receiving_account = None
+    if payment_method_id:
+        pm = db.session.get(PaymentMethod, int(payment_method_id))
+        if not pm or pm.company_id != invoice.company_id or not pm.is_active:
+            raise LedgerError("طريقة دفع غير صالحة")
+        receiving_account = pm.account
+        method_label = pm.name_ar or pm.name
+    else:
+        # Legacy fallback: 'cash' or 'bank'
+        code = "1110" if (method or "cash") == "cash" else "1120"
+        receiving_account = get_account_by_code(invoice.company_id, code)
+        method_label = method or "cash"
+
     ar = get_account_by_code(invoice.company_id, "1130")
-    if not cash or not ar:
+    if not receiving_account or not ar:
         raise LedgerError("حسابات النقدية / العملاء غير موجودة")
 
     entry = post_journal(
         company_id=invoice.company_id,
-        description=f"تحصيل من {invoice.customer.name} — فاتورة #{invoice.number}",
+        description=f"تحصيل من {invoice.customer.name} — فاتورة #{invoice.number} ({method_label})",
         lines=[
-            {"account_id": cash.id, "debit": amount, "credit": 0},
+            {"account_id": receiving_account.id, "debit": amount, "credit": 0},
             {"account_id": ar.id, "debit": 0, "credit": amount},
         ],
         entry_date=payment_date or date.today(),
@@ -71,17 +100,29 @@ def record_payment(invoice, amount, payment_date=None, method="cash", created_by
         invoice_id=invoice.id,
         amount=amount,
         payment_date=payment_date or date.today(),
-        method=method,
+        payment_method_id=pm.id if pm else None,
+        method=(pm.name if pm else method),
         journal_entry_id=entry.id,
     )
     db.session.add(payment)
 
     invoice.paid_amount = float(invoice.paid_amount or 0) + amount
-    if invoice.paid_amount >= float(invoice.total) - 0.01:
+    is_full = invoice.paid_amount >= float(invoice.total) - 0.01
+    if is_full:
         invoice.status = InvoiceStatus.PAID
     else:
         invoice.status = InvoiceStatus.PARTIALLY_PAID
     db.session.commit()
+
+    # Email notification — non-blocking, controlled by caller
+    if notify:
+        try:
+            from app.services.email import send_payment_received_email
+            send_payment_received_email(invoice, payment, is_full=is_full)
+        except Exception:
+            import logging
+            logging.getLogger("ledgeros.invoicing").exception("Failed to send payment email")
+
     return payment
 
 

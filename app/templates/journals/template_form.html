@@ -1,0 +1,54 @@
+{% extends "base.html" %}
+{% block page_title %}قالب قيد جديد{% endblock %}
+{% block content %}
+<form method="POST" class="space-y-4">
+  <div class="card p-6">
+    <div class="grid grid-cols-2 gap-4">
+      <div>
+        <label class="block text-sm font-semibold text-slate-700 mb-2">اسم القالب</label>
+        <input type="text" name="name" required class="input" placeholder="مثلاً: قيد إيجار شهري">
+      </div>
+      <div>
+        <label class="block text-sm font-semibold text-slate-700 mb-2">الوصف</label>
+        <input type="text" name="description" class="input">
+      </div>
+    </div>
+  </div>
+
+  <div class="card p-6">
+    <div class="flex items-center justify-between mb-3">
+      <h3 class="font-bold text-navy-900">سطور القالب</h3>
+      <button type="button" onclick="addLine()" class="btn-secondary text-sm">+ سطر</button>
+    </div>
+    <table class="data-table">
+      <thead><tr><th>الحساب</th><th>المذكرة</th><th class="text-left">مدين</th><th class="text-left">دائن</th><th></th></tr></thead>
+      <tbody id="lines-body"></tbody>
+    </table>
+  </div>
+
+  <div class="flex justify-end gap-2">
+    <a href="{{ url_for('journals.templates_list') }}" class="btn-secondary">إلغاء</a>
+    <button type="submit" class="btn-primary">حفظ القالب</button>
+  </div>
+</form>
+
+<script>
+const accountsData = [{% for a in accounts %}{id:{{a.id}},code:"{{a.code}}",name:"{{(a.name_ar or a.name)|e}}"}{% if not loop.last %},{% endif %}{% endfor %}];
+function addLine() {
+  const tbody = document.getElementById('lines-body');
+  const tr = document.createElement('tr');
+  tr.innerHTML = `
+    <td><select name="account_id[]" class="select text-sm">
+      <option value="">— اختر —</option>
+      ${accountsData.map(a => `<option value="${a.id}">${a.code} — ${a.name}</option>`).join('')}
+    </select></td>
+    <td><input type="text" name="memo[]" class="input text-sm"></td>
+    <td><input type="number" name="debit[]" step="0.01" min="0" value="0" class="input text-sm font-mono"></td>
+    <td><input type="number" name="credit[]" step="0.01" min="0" value="0" class="input text-sm font-mono"></td>
+    <td><button type="button" onclick="this.closest('tr').remove()" class="text-red-500">×</button></td>
+  `;
+  tbody.appendChild(tr);
+}
+addLine(); addLine();
+</script>
+{% endblock %}

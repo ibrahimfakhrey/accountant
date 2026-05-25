@@ -1,22 +1,21 @@
 from datetime import datetime, date, timedelta
-from flask import Blueprint, render_template, redirect, url_for, flash, request, g
+from flask import Blueprint, render_template, redirect, url_for, flash, request, g, send_file
 from flask_login import login_required, current_user
 from app import db
-from app.models import Invoice, InvoiceItem, InvoiceStatus, Customer, Payment
+from app.models import Invoice, InvoiceItem, InvoiceStatus, Customer, Payment, Product, PaymentMethod, DiscountType
 from app.models.refund import RefundType
 from app.services.invoicing import (
-    post_invoice_to_ledger, record_payment, issue_refund, update_overdue_statuses
+    post_invoice_to_ledger, record_payment, issue_refund,
+    update_overdue_statuses, send_invoice_notification,
 )
 from app.services.ledger import LedgerError
+from app.services.numbering import next_number
 
 bp = Blueprint("invoices", __name__)
 
 
 def _next_number(company_id):
-    last = Invoice.query.filter_by(company_id=company_id).order_by(Invoice.id.desc()).first()
-    year = date.today().year
-    n = (last.id if last else 0) + 1
-    return f"{year}-{n:05d}"
+    return next_number(company_id, "INVOICE")
 
 
 @bp.route("/")
@@ -25,15 +24,105 @@ def index():
     if not g.active_company:
         return redirect(url_for("companies.new"))
     update_overdue_statuses(g.active_company.id)
-    status = request.args.get("status")
+
+    from app.models import Customer
     q = Invoice.query.filter_by(company_id=g.active_company.id)
+
+    status = request.args.get("status")
     if status:
         try:
             q = q.filter_by(status=InvoiceStatus[status])
         except KeyError:
             pass
+
+    search = (request.args.get("search") or "").strip()
+    if search:
+        like = f"%{search}%"
+        q = q.outerjoin(Customer, Invoice.customer_id == Customer.id).filter(
+            db.or_(Invoice.number.ilike(like), Customer.name.ilike(like))
+        )
+
+    start_date = request.args.get("start_date")
+    end_date = request.args.get("end_date")
+    if start_date:
+        try:
+            q = q.filter(Invoice.issue_date >= datetime.strptime(start_date, "%Y-%m-%d").date())
+        except ValueError:
+            pass
+    if end_date:
+        try:
+            q = q.filter(Invoice.issue_date <= datetime.strptime(end_date, "%Y-%m-%d").date())
+        except ValueError:
+            pass
+
     invoices = q.order_by(Invoice.issue_date.desc(), Invoice.id.desc()).all()
-    return render_template("invoices/index.html", invoices=invoices, statuses=InvoiceStatus)
+
+    total_invoiced = sum(float(i.total or 0) for i in invoices)
+    total_collected = sum(float(i.paid_amount or 0) for i in invoices)
+    total_outstanding = sum(i.balance for i in invoices if i.status not in (InvoiceStatus.CANCELLED, InvoiceStatus.REFUNDED))
+
+    totals = {
+        "invoiced": total_invoiced,
+        "collected": total_collected,
+        "outstanding": total_outstanding,
+        "count": len(invoices),
+    }
+
+    return render_template(
+        "invoices/index.html",
+        invoices=invoices, statuses=InvoiceStatus, totals=totals,
+    )
+
+
+def _populate_invoice_from_form(invoice, form):
+    """Apply form data to an Invoice (used by both create and edit)."""
+    invoice.customer_id = int(form.get("customer_id"))
+    invoice.issue_date = datetime.strptime(form.get("issue_date", date.today().isoformat()), "%Y-%m-%d").date()
+    invoice.due_date = datetime.strptime(form.get("due_date", (date.today() + timedelta(days=30)).isoformat()), "%Y-%m-%d").date()
+    invoice.tax_rate = float(form.get("tax_rate", g.active_company.vat_rate or 15))
+    invoice.notes = form.get("notes", "")
+    invoice.internal_notes = form.get("internal_notes", "")
+    invoice.send_reminders = form.get("send_reminders") == "1"
+
+    try:
+        invoice.invoice_discount_type = DiscountType[(form.get("invoice_discount_type") or "NONE")]
+    except KeyError:
+        invoice.invoice_discount_type = DiscountType.NONE
+    invoice.invoice_discount_value = float(form.get("invoice_discount_value") or 0)
+
+    # Replace items
+    for old in list(invoice.items):
+        db.session.delete(old)
+    db.session.flush()
+
+    product_ids = form.getlist("item_product_id[]")
+    descriptions = form.getlist("item_description[]")
+    quantities = form.getlist("item_quantity[]")
+    unit_prices = form.getlist("item_unit_price[]")
+    disc_types = form.getlist("item_discount_type[]")
+    disc_values = form.getlist("item_discount_value[]")
+
+    for i, desc in enumerate(descriptions):
+        if not (desc or "").strip():
+            continue
+        pid = product_ids[i] if i < len(product_ids) and product_ids[i] else None
+        try:
+            item_dt = DiscountType[(disc_types[i] if i < len(disc_types) else "NONE") or "NONE"]
+        except KeyError:
+            item_dt = DiscountType.NONE
+        item = InvoiceItem(
+            invoice_id=invoice.id,
+            product_id=int(pid) if pid else None,
+            description=desc.strip(),
+            quantity=float(quantities[i] or 1),
+            unit_price=float(unit_prices[i] or 0),
+            discount_type=item_dt,
+            discount_value=float((disc_values[i] if i < len(disc_values) else 0) or 0),
+        )
+        db.session.add(item)
+    db.session.flush()
+    invoice.items = InvoiceItem.query.filter_by(invoice_id=invoice.id).all()
+    invoice.recalc()
 
 
 @bp.route("/new", methods=["GET", "POST"])
@@ -44,48 +133,29 @@ def new():
     customers = Customer.query.filter_by(company_id=g.active_company.id, is_active=True).order_by(Customer.name).all()
     if request.method == "POST":
         try:
-            customer_id = int(request.form.get("customer_id"))
-            issue_date = datetime.strptime(request.form.get("issue_date", date.today().isoformat()), "%Y-%m-%d").date()
-            due_date = datetime.strptime(request.form.get("due_date", (date.today() + timedelta(days=30)).isoformat()), "%Y-%m-%d").date()
-            tax_rate = float(request.form.get("tax_rate", g.active_company.vat_rate or 15))
-            notes = request.form.get("notes", "")
-            descriptions = request.form.getlist("item_description[]")
-            quantities = request.form.getlist("item_quantity[]")
-            unit_prices = request.form.getlist("item_unit_price[]")
-            should_send = request.form.get("send") == "1"
-
             invoice = Invoice(
                 company_id=g.active_company.id,
                 number=_next_number(g.active_company.id),
-                customer_id=customer_id,
-                issue_date=issue_date,
-                due_date=due_date,
+                customer_id=int(request.form.get("customer_id")),
+                issue_date=date.today(),
+                due_date=date.today() + timedelta(days=30),
                 currency=g.active_company.base_currency,
-                tax_rate=tax_rate,
-                notes=notes,
+                tax_rate=g.active_company.vat_rate or 15,
                 status=InvoiceStatus.DRAFT,
             )
             db.session.add(invoice)
             db.session.flush()
-            for i, desc in enumerate(descriptions):
-                if not desc.strip():
-                    continue
-                item = InvoiceItem(
-                    invoice_id=invoice.id,
-                    description=desc.strip(),
-                    quantity=float(quantities[i] or 1),
-                    unit_price=float(unit_prices[i] or 0),
-                )
-                db.session.add(item)
-            db.session.flush()
-            # Reload items
-            invoice.items = InvoiceItem.query.filter_by(invoice_id=invoice.id).all()
-            invoice.recalc()
+            _populate_invoice_from_form(invoice, request.form)
+
+            should_send = request.form.get("send") == "1"
+            email_customer = request.form.get("email_customer") == "1"
             if should_send:
                 invoice.status = InvoiceStatus.SENT
                 post_invoice_to_ledger(invoice, created_by=current_user.id)
             db.session.commit()
-            flash("تم إنشاء الفاتورة", "success")
+            if should_send and email_customer:
+                send_invoice_notification(invoice)
+            flash(f"تم إنشاء الفاتورة {invoice.number}", "success")
             return redirect(url_for("invoices.view", invoice_id=invoice.id))
         except LedgerError as e:
             db.session.rollback()
@@ -94,7 +164,48 @@ def new():
             db.session.rollback()
             flash(f"خطأ: {e}", "error")
 
-    return render_template("invoices/form.html", customers=customers)
+    return render_template("invoices/form.html", customers=customers, invoice=None)
+
+
+@bp.route("/<int:invoice_id>/edit", methods=["GET", "POST"])
+@login_required
+def edit(invoice_id):
+    invoice = db.session.get(Invoice, invoice_id)
+    if not invoice or invoice.company_id != g.active_company.id:
+        flash("غير موجود", "error")
+        return redirect(url_for("invoices.index"))
+    if invoice.status != InvoiceStatus.DRAFT:
+        flash("لا يمكن تعديل فاتورة بعد إرسالها", "warning")
+        return redirect(url_for("invoices.view", invoice_id=invoice_id))
+
+    customers = Customer.query.filter_by(company_id=g.active_company.id, is_active=True).order_by(Customer.name).all()
+    if request.method == "POST":
+        try:
+            _populate_invoice_from_form(invoice, request.form)
+            db.session.commit()
+            flash("تم حفظ التعديلات", "success")
+            return redirect(url_for("invoices.view", invoice_id=invoice.id))
+        except Exception as e:
+            db.session.rollback()
+            flash(f"خطأ: {e}", "error")
+
+    return render_template("invoices/form.html", customers=customers, invoice=invoice)
+
+
+@bp.route("/<int:invoice_id>/preview")
+@login_required
+def preview_pdf(invoice_id):
+    invoice = db.session.get(Invoice, invoice_id)
+    if not invoice or invoice.company_id != g.active_company.id:
+        flash("غير موجود", "error")
+        return redirect(url_for("invoices.index"))
+    from app.services.export import export_invoice_pdf
+    buf = export_invoice_pdf(invoice)
+    return send_file(
+        buf, mimetype="application/pdf",
+        download_name=f"invoice-{invoice.number}.pdf",
+        as_attachment=False,
+    )
 
 
 @bp.route("/<int:invoice_id>")
@@ -120,9 +231,26 @@ def send(invoice_id):
         try:
             invoice.status = InvoiceStatus.SENT
             post_invoice_to_ledger(invoice, created_by=current_user.id)
+            if request.form.get("email_customer", "1") == "1":
+                send_invoice_notification(invoice)
             flash("تم إرسال الفاتورة وتسجيل القيد", "success")
         except LedgerError as e:
             flash(str(e), "error")
+    return redirect(url_for("invoices.view", invoice_id=invoice_id))
+
+
+@bp.route("/<int:invoice_id>/resend", methods=["POST"])
+@login_required
+def resend(invoice_id):
+    invoice = db.session.get(Invoice, invoice_id)
+    if not invoice or invoice.company_id != g.active_company.id:
+        flash("غير موجود", "error")
+        return redirect(url_for("invoices.index"))
+    if invoice.status == InvoiceStatus.DRAFT:
+        flash("لا يمكن إعادة إرسال مسودة — أرسلها أولاً", "warning")
+    else:
+        ok = send_invoice_notification(invoice)
+        flash("تم إعادة الإرسال" if ok else "تعذّر الإرسال — راجع السجلات", "success" if ok else "error")
     return redirect(url_for("invoices.view", invoice_id=invoice_id))
 
 
@@ -135,8 +263,13 @@ def pay(invoice_id):
         return redirect(url_for("invoices.index"))
     try:
         amount = float(request.form.get("amount", 0))
-        method = request.form.get("method", "cash")
-        record_payment(invoice, amount, method=method, created_by=current_user.id)
+        pmid = request.form.get("payment_method_id") or None
+        notify = request.form.get("notify_customer", "1") == "1"
+        record_payment(
+            invoice, amount,
+            payment_method_id=int(pmid) if pmid else None,
+            created_by=current_user.id, notify=notify,
+        )
         flash(f"تم تسجيل دفعة {amount:.2f}", "success")
     except LedgerError as e:
         flash(str(e), "error")

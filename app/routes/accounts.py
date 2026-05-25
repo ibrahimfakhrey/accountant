@@ -1,8 +1,64 @@
-from flask import Blueprint, render_template, redirect, url_for, flash, request, g
+from flask import Blueprint, render_template, redirect, url_for, flash, request, g, jsonify
 from flask_login import login_required
 from app import db
 from app.models import Account, AccountType, NormalSide
 from app.models.account import NORMAL_SIDE_FOR_TYPE
+
+
+TYPE_DEFAULT_CODES = {
+    "ASSET": 1000, "LIABILITY": 2000, "EQUITY": 3000,
+    "REVENUE": 4000, "EXPENSE": 5000,
+}
+
+
+def _trailing_zeros(s):
+    n = 0
+    for ch in reversed(s):
+        if ch == "0":
+            n += 1
+        else:
+            break
+    return n
+
+
+def _suggest_next_code(company_id, type_str=None, parent_id=None):
+    """Suggest next account code following the hierarchy step rule:
+    step = 10 ^ max(trailing_zeros(parent.code) - 1, 0)
+    """
+    if parent_id:
+        parent = db.session.get(Account, int(parent_id))
+        if not parent or parent.company_id != company_id:
+            return None
+        if not parent.code.isdigit():
+            return None
+        trailing = _trailing_zeros(parent.code)
+        step = 10 ** max(trailing - 1, 0) if trailing > 0 else 1
+        children_codes = [
+            int(c.code) for c in Account.query.filter_by(
+                company_id=company_id, parent_id=parent.id
+            ).all() if c.code.isdigit()
+        ]
+        new_code = (max(children_codes) + step) if children_codes else (int(parent.code) + step)
+    else:
+        default = TYPE_DEFAULT_CODES.get(type_str)
+        if not default:
+            return None
+        try:
+            acc_type = AccountType[type_str]
+        except KeyError:
+            return None
+        root_codes = [
+            int(r.code) for r in Account.query.filter_by(
+                company_id=company_id, parent_id=None, type=acc_type
+            ).all() if r.code.isdigit()
+        ]
+        new_code = (max(root_codes) + 1000) if root_codes else default
+        step = 1000
+
+    while Account.query.filter_by(company_id=company_id, code=str(new_code)).first():
+        new_code += step
+
+    return str(new_code)
 
 bp = Blueprint("accounts", __name__)
 
@@ -23,12 +79,32 @@ def index():
     return render_template("accounts/index.html", accounts=accounts, roots=roots, children_map=children_map)
 
 
+@bp.route("/suggest-code")
+@login_required
+def suggest_code():
+    if not g.active_company:
+        return jsonify({"code": ""})
+    parent_id = request.args.get("parent_id") or None
+    type_str = request.args.get("type") or None
+    code = _suggest_next_code(g.active_company.id, type_str=type_str, parent_id=parent_id)
+    # If parent given, also return its type so the form can lock to it
+    parent_type = None
+    if parent_id:
+        parent = db.session.get(Account, int(parent_id))
+        if parent and parent.company_id == g.active_company.id:
+            parent_type = parent.type.name
+    return jsonify({"code": code or "", "parent_type": parent_type})
+
+
 @bp.route("/new", methods=["GET", "POST"])
 @login_required
 def new():
     if not g.active_company:
         return redirect(url_for("companies.new"))
-    parents = Account.query.filter_by(company_id=g.active_company.id).order_by(Account.code).all()
+    parents = Account.query.filter_by(
+        company_id=g.active_company.id, is_active=True
+    ).order_by(Account.code).all()
+
     if request.method == "POST":
         code = request.form.get("code", "").strip()
         name = request.form.get("name", "").strip()
@@ -37,14 +113,30 @@ def new():
         parent_id = request.form.get("parent_id") or None
         if parent_id == "":
             parent_id = None
+
+        # If a parent is selected, type is derived from the parent — guarantees consistency
+        if parent_id:
+            parent = db.session.get(Account, int(parent_id))
+            if parent and parent.company_id == g.active_company.id:
+                type_str = parent.type.name
+
         try:
             acc_type = AccountType[type_str]
-        except KeyError:
+        except (KeyError, TypeError):
             flash("نوع الحساب غير صحيح", "error")
-            return render_template("accounts/form.html", parents=parents)
+            return render_template("accounts/form.html", parents=parents, account_types=AccountType)
+
+        # Auto-fill code if user left it blank
+        if not code:
+            code = _suggest_next_code(g.active_company.id, type_str=type_str, parent_id=parent_id)
+            if not code:
+                flash("تعذّر توليد الكود تلقائياً — أدخله يدوياً", "error")
+                return render_template("accounts/form.html", parents=parents, account_types=AccountType)
+
         if Account.query.filter_by(company_id=g.active_company.id, code=code).first():
-            flash("الكود مستخدم بالفعل", "error")
-            return render_template("accounts/form.html", parents=parents)
+            flash(f"الكود {code} مستخدم بالفعل", "error")
+            return render_template("accounts/form.html", parents=parents, account_types=AccountType)
+
         acc = Account(
             company_id=g.active_company.id,
             code=code,
@@ -56,8 +148,9 @@ def new():
         )
         db.session.add(acc)
         db.session.commit()
-        flash("تم إضافة الحساب", "success")
+        flash(f"تم إضافة الحساب {acc.code}", "success")
         return redirect(url_for("accounts.index"))
+
     return render_template("accounts/form.html", parents=parents, account_types=AccountType)
 
 

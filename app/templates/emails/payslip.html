@@ -1,0 +1,16 @@
+{% extends "emails/_base.html" %}
+{% block title %}كشف راتب {{ run.period_month }}/{{ run.period_year }}{% endblock %}
+{% block content %}
+<h2 style="color:#0A2540;margin:0 0 16px">السلام عليكم {{ employee.name }}</h2>
+<p style="line-height:1.7;color:#475569">
+  تجد كشف راتبك لشهر <strong>{{ run.period_month }}/{{ run.period_year }}</strong> مرفقاً بصيغة PDF.
+</p>
+
+<table style="width:100%;border-collapse:collapse;margin:24px 0;background:#F8FAFC;border-radius:12px;overflow:hidden">
+  <tr><td style="padding:12px 16px;color:#64748B">الراتب الأساسي</td><td style="padding:12px 16px;text-align:left;font-family:monospace">{{ "%.2f"|format(line.basic) }}</td></tr>
+  <tr><td style="padding:12px 16px;color:#64748B">البدلات</td><td style="padding:12px 16px;text-align:left;font-family:monospace">{{ "%.2f"|format(line.allowances) }}</td></tr>
+  {% if line.overtime %}<tr><td style="padding:12px 16px;color:#64748B">الأوفرتايم</td><td style="padding:12px 16px;text-align:left;font-family:monospace">{{ "%.2f"|format(line.overtime) }}</td></tr>{% endif %}
+  <tr><td style="padding:12px 16px;color:#B91C1C">الخصومات</td><td style="padding:12px 16px;text-align:left;font-family:monospace;color:#B91C1C">−{{ "%.2f"|format(line.deductions) }}</td></tr>
+  <tr style="background:#0A2540;color:#fff"><td style="padding:14px 16px;font-weight:bold">صافي الراتب</td><td style="padding:14px 16px;text-align:left;font-family:monospace;font-size:18px;font-weight:bold">{{ "%.2f"|format(line.net) }}</td></tr>
+</table>
+{% endblock %}

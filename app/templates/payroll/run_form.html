@@ -1,0 +1,65 @@
+{% extends "base.html" %}
+{% block page_title %}تشغيل كشف رواتب{% endblock %}
+{% block content %}
+<form method="POST" class="space-y-4">
+  <div class="card p-6">
+    <div class="grid grid-cols-3 gap-4 items-end">
+      <div>
+        <label class="block text-sm font-semibold text-slate-700 mb-2">السنة</label>
+        <select name="year" class="select">
+          {% for y in [today.year - 1, today.year, today.year + 1] %}<option value="{{ y }}" {% if y == today.year %}selected{% endif %}>{{ y }}</option>{% endfor %}
+        </select>
+      </div>
+      <div>
+        <label class="block text-sm font-semibold text-slate-700 mb-2">الشهر</label>
+        <select name="month" class="select">
+          {% for m in range(1, 13) %}<option value="{{ m }}" {% if m == today.month %}selected{% endif %}>شهر {{ m }}</option>{% endfor %}
+        </select>
+      </div>
+      <label class="flex items-center gap-2 text-sm cursor-pointer">
+        <input type="checkbox" name="send_emails" value="1" checked class="w-4 h-4 rounded text-brand-600">
+        <span>📧 إرسال PDF كشف الراتب لكل موظف بالإيميل</span>
+      </label>
+    </div>
+  </div>
+
+  <div class="card p-6">
+    <h3 class="font-bold text-navy-900 mb-3">تعديل البيانات الشهرية لكل موظف</h3>
+    <p class="text-xs text-slate-500 mb-4">الراتب النسبي = الأساسي ÷ 30 × عدد أيام العمل. الأوفرتايم/البونص/الخصومات المتغيرة بتدخلها هنا وبتتصفر بعد الكشف.</p>
+    <table class="data-table">
+      <thead><tr>
+        <th>الموظف</th>
+        <th style="width:5rem">أيام</th>
+        <th style="width:6rem">أوفرتايم</th>
+        <th style="width:6rem">بونص</th>
+        <th style="width:6rem">غياب</th>
+        <th style="width:6rem">تأخير</th>
+        <th style="width:6rem">سُلَف</th>
+      </tr></thead>
+      <tbody>
+        {% for e in employees %}
+        <tr>
+          <td>
+            <div class="font-semibold">{{ e.name }}</div>
+            <div class="text-xs text-slate-500">أساسي: {{ "%.2f"|format(e.basic_salary) }} · بدلات: {{ "%.2f"|format(e.allowances) }}</div>
+          </td>
+          <td><input type="number" name="working_days_{{ e.id }}" value="30" min="0" max="30" class="input text-sm font-mono"></td>
+          <td><input type="number" name="overtime_{{ e.id }}" step="0.01" value="0" class="input text-sm font-mono"></td>
+          <td><input type="number" name="bonus_{{ e.id }}" step="0.01" value="0" class="input text-sm font-mono"></td>
+          <td><input type="number" name="absence_{{ e.id }}" step="0.01" value="0" class="input text-sm font-mono"></td>
+          <td><input type="number" name="late_{{ e.id }}" step="0.01" value="0" class="input text-sm font-mono"></td>
+          <td><input type="number" name="advance_{{ e.id }}" step="0.01" value="0" class="input text-sm font-mono"></td>
+        </tr>
+        {% else %}
+        <tr><td colspan="7" class="text-center text-slate-400 py-6">لا يوجد موظفون نشطون</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  <div class="flex justify-end gap-2">
+    <a href="{{ url_for('payroll.index') }}" class="btn-secondary">إلغاء</a>
+    <button type="submit" class="btn-primary" {% if not employees %}disabled{% endif %}>تشغيل وتسجيل القيد</button>
+  </div>
+</form>
+{% endblock %}

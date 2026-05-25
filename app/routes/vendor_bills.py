@@ -1,0 +1,194 @@
+from datetime import datetime, date, timedelta
+from flask import Blueprint, render_template, redirect, url_for, flash, request, g, jsonify
+from flask_login import login_required, current_user
+from app import db
+from app.models import (
+    VendorBill, VendorBillItem, VendorBillStatus, VendorBillPaymentMethod,
+    BillLineType, Vendor, Account, PaymentMethod,
+)
+from app.services.vendor_bills import (
+    post_vendor_bill, record_bill_payment, update_overdue_vendor_bills,
+    get_allowed_accounts_for_line_type,
+)
+from app.services.ledger import LedgerError
+from app.services.numbering import next_number
+
+bp = Blueprint("vendor_bills", __name__)
+
+
+def _next_bill_number(company_id):
+    return next_number(company_id, "VENDOR_BILL")
+
+
+@bp.route("/")
+@login_required
+def index():
+    if not g.active_company:
+        return redirect(url_for("companies.new"))
+    update_overdue_vendor_bills(g.active_company.id)
+
+    q = VendorBill.query.filter_by(company_id=g.active_company.id)
+    status = request.args.get("status")
+    if status:
+        try:
+            q = q.filter_by(status=VendorBillStatus[status])
+        except KeyError:
+            pass
+    search = (request.args.get("search") or "").strip()
+    if search:
+        like = f"%{search}%"
+        q = q.outerjoin(Vendor, VendorBill.vendor_id == Vendor.id).filter(
+            db.or_(VendorBill.number.ilike(like), Vendor.name.ilike(like), VendorBill.supplier_invoice_number.ilike(like))
+        )
+    bills = q.order_by(VendorBill.issue_date.desc(), VendorBill.id.desc()).all()
+
+    total_invoiced = sum(float(b.total or 0) for b in bills)
+    total_paid = sum(float(b.paid_amount or 0) for b in bills)
+    total_outstanding = sum(b.balance for b in bills if b.status not in (VendorBillStatus.CANCELLED,))
+
+    totals = {
+        "count": len(bills),
+        "invoiced": total_invoiced,
+        "paid": total_paid,
+        "outstanding": total_outstanding,
+    }
+    return render_template("vendor_bills/index.html", bills=bills, statuses=VendorBillStatus, totals=totals)
+
+
+@bp.route("/api/accounts")
+@login_required
+def api_accounts():
+    """Return accounts allowed for a given line_type. Used by the bill form."""
+    try:
+        lt = BillLineType[request.args.get("line_type", "EXPENSE")]
+    except KeyError:
+        return jsonify([])
+    accounts = get_allowed_accounts_for_line_type(g.active_company.id, lt)
+    return jsonify([
+        {"id": a.id, "code": a.code, "name": a.name_ar or a.name} for a in accounts
+    ])
+
+
+def _populate_from_form(bill, form):
+    """Fill bill + items from form data."""
+    bill.vendor_id = int(form.get("vendor_id")) if form.get("vendor_id") else None
+    bill.supplier_invoice_number = (form.get("supplier_invoice_number") or "").strip()
+    bill.issue_date = datetime.strptime(form.get("issue_date") or date.today().isoformat(), "%Y-%m-%d").date()
+    bill.due_date = datetime.strptime(form.get("due_date") or (date.today() + timedelta(days=30)).isoformat(), "%Y-%m-%d").date()
+    bill.payment_method = VendorBillPaymentMethod[form.get("payment_method", "CASH")]
+    bill.notes = form.get("notes", "")
+    bill.tax_rate = float(form.get("tax_rate", 0) or 0)
+
+    # Replace items
+    for old in list(bill.items):
+        db.session.delete(old)
+    db.session.flush()
+
+    descriptions = form.getlist("item_description[]")
+    types = form.getlist("item_line_type[]")
+    accounts = form.getlist("item_account_id[]")
+    quantities = form.getlist("item_quantity[]")
+    prices = form.getlist("item_unit_price[]")
+    lives = form.getlist("item_useful_life_years[]")
+    salvages = form.getlist("item_salvage_value[]")
+
+    for i, desc in enumerate(descriptions):
+        if not (desc or "").strip():
+            continue
+        lt = BillLineType[types[i] if i < len(types) else "EXPENSE"]
+        item = VendorBillItem(
+            bill_id=bill.id,
+            description=desc.strip(),
+            line_type=lt,
+            account_id=int(accounts[i]),
+            quantity=float(quantities[i] or 1),
+            unit_price=float(prices[i] or 0),
+        )
+        if lt == BillLineType.FIXED_ASSET:
+            item.useful_life_years = int(lives[i] or 0) if i < len(lives) and lives[i] else None
+            item.salvage_value = float(salvages[i] or 0) if i < len(salvages) and salvages[i] else 0
+        db.session.add(item)
+    db.session.flush()
+    bill.items = VendorBillItem.query.filter_by(bill_id=bill.id).all()
+    bill.recalc()
+
+
+@bp.route("/new", methods=["GET", "POST"])
+@login_required
+def new():
+    if not g.active_company:
+        return redirect(url_for("companies.new"))
+    vendors = Vendor.query.filter_by(company_id=g.active_company.id, is_active=True).order_by(Vendor.name).all()
+
+    if request.method == "POST":
+        try:
+            bill = VendorBill(
+                company_id=g.active_company.id,
+                number=_next_bill_number(g.active_company.id),
+                issue_date=date.today(),
+                due_date=date.today() + timedelta(days=30),
+                currency=g.active_company.base_currency,
+                status=VendorBillStatus.DRAFT,
+            )
+            db.session.add(bill)
+            db.session.flush()
+            _populate_from_form(bill, request.form)
+
+            should_post = request.form.get("action") == "post"
+            if should_post:
+                post_vendor_bill(bill, created_by=current_user.id)
+            else:
+                db.session.commit()
+            flash(f"تم {'إنشاء وتسجيل' if should_post else 'حفظ مسودة'} فاتورة المورد {bill.number}", "success")
+            return redirect(url_for("vendor_bills.view", bill_id=bill.id))
+        except LedgerError as e:
+            db.session.rollback()
+            flash(str(e), "error")
+        except Exception as e:
+            db.session.rollback()
+            flash(f"خطأ: {e}", "error")
+
+    return render_template("vendor_bills/form.html", bill=None, vendors=vendors)
+
+
+@bp.route("/<int:bill_id>")
+@login_required
+def view(bill_id):
+    bill = db.session.get(VendorBill, bill_id)
+    if not bill or bill.company_id != g.active_company.id:
+        return redirect(url_for("vendor_bills.index"))
+    payment_methods = PaymentMethod.query.filter_by(
+        company_id=g.active_company.id, is_active=True
+    ).all()
+    return render_template("vendor_bills/view.html", bill=bill, payment_methods=payment_methods)
+
+
+@bp.route("/<int:bill_id>/post", methods=["POST"])
+@login_required
+def post(bill_id):
+    bill = db.session.get(VendorBill, bill_id)
+    if not bill or bill.company_id != g.active_company.id:
+        return redirect(url_for("vendor_bills.index"))
+    try:
+        post_vendor_bill(bill, created_by=current_user.id)
+        flash("تم تسجيل الفاتورة والقيد المحاسبي", "success")
+    except LedgerError as e:
+        flash(str(e), "error")
+    return redirect(url_for("vendor_bills.view", bill_id=bill_id))
+
+
+@bp.route("/<int:bill_id>/pay", methods=["POST"])
+@login_required
+def pay(bill_id):
+    bill = db.session.get(VendorBill, bill_id)
+    if not bill or bill.company_id != g.active_company.id:
+        return redirect(url_for("vendor_bills.index"))
+    try:
+        amount = float(request.form.get("amount", 0))
+        pmid = request.form.get("payment_method_id") or None
+        record_bill_payment(bill, amount, payment_method_id=int(pmid) if pmid else None,
+                           created_by=current_user.id)
+        flash(f"تم تسجيل دفعة {amount:.2f}", "success")
+    except (LedgerError, ValueError) as e:
+        flash(str(e), "error")
+    return redirect(url_for("vendor_bills.view", bill_id=bill_id))

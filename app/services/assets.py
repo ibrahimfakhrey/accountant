@@ -1,6 +1,13 @@
-"""Fixed asset depreciation posting."""
+"""Fixed asset operations: purchase posting + monthly depreciation.
+
+Depreciation is tracked per-asset, per-period via the DepreciationEntry table.
+Posting the same month twice is impossible — the second attempt either skips
+the already-processed assets (if mixed with new ones) or returns a clear
+message saying nothing's left to do.
+"""
+from datetime import date
 from app import db
-from app.models import FixedAsset
+from app.models import FixedAsset, DepreciationEntry
 from app.services.ledger import post_journal, get_account_by_code, LedgerError
 
 
@@ -13,11 +20,7 @@ FUNDING_ACCOUNT_CODES = {
 
 
 def post_asset_purchase(asset, funding="cash", created_by=None):
-    """Dr Fixed Asset / Cr Cash (or Bank, or Accounts Payable).
-
-    Called once when a new asset is recorded. Without this, the asset module
-    only tracks depreciation and the asset cost never lands on the ledger.
-    """
+    """Dr Fixed Asset / Cr Cash (or Bank, or Accounts Payable)."""
     if float(asset.cost or 0) <= 0:
         return None
     source_code = FUNDING_ACCOUNT_CODES.get(funding, "1110")
@@ -41,37 +44,76 @@ def post_asset_purchase(asset, funding="cash", created_by=None):
 
 
 def post_monthly_depreciation(company_id, year, month, created_by=None):
+    """Post one journal per asset that hasn't been depreciated for this period.
+
+    Returns a dict:
+        {
+          "processed": [(asset_name, amount), ...],
+          "skipped":   [asset_name, ...],   # already done for this period
+          "total_amount": float,
+        }
+
+    Idempotent — calling twice in the same month for the same assets is a no-op.
+    """
     assets = FixedAsset.query.filter_by(company_id=company_id, is_disposed=False).all()
+
+    processed = []
+    skipped = []
+    total_amount = 0.0
+
     if not assets:
-        return None
+        return {"processed": [], "skipped": [], "total_amount": 0.0}
 
     dep_expense = get_account_by_code(company_id, "5250")
     accumulated = get_account_by_code(company_id, "1290")
     if not dep_expense or not accumulated:
-        raise LedgerError("حسابات الاستهلاك غير موجودة")
+        raise LedgerError("حسابات الإهلاك غير موجودة في شجرة الحسابات")
 
-    total = 0.0
     for asset in assets:
+        if asset.depreciated_for_period(year, month):
+            skipped.append(asset.name)
+            continue
+
         monthly = asset.monthly_depreciation
         if monthly <= 0:
+            skipped.append(asset.name)
             continue
-        if float(asset.accumulated_depreciation or 0) + monthly > float(asset.cost) - float(asset.salvage_value):
+
+        # Cap: don't depreciate past the recoverable amount
+        max_more = float(asset.cost) - float(asset.salvage_value) - float(asset.accumulated_depreciation or 0)
+        if max_more <= 0.01:
+            skipped.append(asset.name)
             continue
-        asset.accumulated_depreciation = float(asset.accumulated_depreciation or 0) + monthly
-        total += monthly
+        amount = min(monthly, max_more)
 
-    if total <= 0:
-        return None
+        # Post the journal
+        entry = post_journal(
+            company_id=company_id,
+            description=f"إهلاك أصل ثابت: {asset.name} — {month:02d}/{year}",
+            lines=[
+                {"account_id": dep_expense.id, "debit": amount, "credit": 0,
+                 "memo": f"مصاريف إهلاك الأصل {asset.name}"},
+                {"account_id": accumulated.id, "debit": 0, "credit": amount,
+                 "memo": f"مجمع إهلاك الأصل {asset.name}"},
+            ],
+            reference=f"DEPR-{year}-{month:02d}-A{asset.id}",
+            created_by=created_by,
+            source_type="depreciation",
+            source_id=asset.id,
+        )
 
-    entry = post_journal(
-        company_id=company_id,
-        description=f"استهلاك شهر {month}/{year}",
-        lines=[
-            {"account_id": dep_expense.id, "debit": total, "credit": 0},
-            {"account_id": accumulated.id, "debit": 0, "credit": total},
-        ],
-        reference=f"DEPR-{year}-{month:02d}",
-        created_by=created_by,
-        source_type="depreciation",
-    )
-    return entry
+        # Update asset and create the period record
+        asset.accumulated_depreciation = float(asset.accumulated_depreciation or 0) + amount
+        new_nbv = float(asset.cost) - float(asset.accumulated_depreciation)
+        db.session.add(DepreciationEntry(
+            asset_id=asset.id,
+            period_year=year, period_month=month,
+            amount=amount,
+            journal_entry_id=entry.id,
+            book_value_after=new_nbv,
+        ))
+        processed.append((asset.name, amount))
+        total_amount += amount
+
+    db.session.commit()
+    return {"processed": processed, "skipped": skipped, "total_amount": total_amount}

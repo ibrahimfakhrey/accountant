@@ -6,6 +6,7 @@ class JournalEntry(db.Model):
     __tablename__ = "journal_entries"
     id = db.Column(db.Integer, primary_key=True)
     company_id = db.Column(db.Integer, db.ForeignKey("companies.id"), nullable=False, index=True)
+    number = db.Column(db.String(20), index=True)
     date = db.Column(db.Date, nullable=False, default=date.today)
     description = db.Column(db.Text, nullable=False)
     reference = db.Column(db.String(50))
@@ -18,9 +19,21 @@ class JournalEntry(db.Model):
     source_id = db.Column(db.Integer)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
+    # Pause/reactivate — paused entries are excluded from reports
+    is_active = db.Column(db.Boolean, default=True, index=True)
+    pause_reason = db.Column(db.Text)
+    paused_by_id = db.Column(db.Integer, db.ForeignKey("users.id"))
+    paused_at = db.Column(db.DateTime)
+    reactivate_reason = db.Column(db.Text)
+    reactivated_by_id = db.Column(db.Integer, db.ForeignKey("users.id"))
+    reactivated_at = db.Column(db.DateTime)
+
+    paused_by = db.relationship("User", foreign_keys=[paused_by_id])
+    reactivated_by = db.relationship("User", foreign_keys=[reactivated_by_id])
+
     company = db.relationship("Company", backref=db.backref("journal_entries", lazy="dynamic"))
     lines = db.relationship("JournalLine", backref="entry", cascade="all, delete-orphan")
-    creator = db.relationship("User")
+    creator = db.relationship("User", foreign_keys=[created_by])
 
     @property
     def total_debit(self):

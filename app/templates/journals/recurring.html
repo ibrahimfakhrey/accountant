@@ -1,0 +1,29 @@
+{% extends "base.html" %}
+{% block page_title %}القيود المتكررة{% endblock %}
+{% block content %}
+<div class="card p-6">
+  <div class="flex items-center justify-between mb-5">
+    <div>
+      <h2 class="font-bold text-navy-900">القيود المتكررة</h2>
+      <p class="text-sm text-slate-500 mt-1">جداول تعمل تلقائياً عند هبوط cron tick</p>
+    </div>
+    <a href="{{ url_for('journals.recurring_new') }}" class="btn-primary">+ جدول تلقائي</a>
+  </div>
+  <table class="data-table">
+    <thead><tr><th>الاسم</th><th>القالب</th><th>التكرار</th><th>التشغيل القادم</th><th>الحالة</th></tr></thead>
+    <tbody>
+    {% for r in items %}
+      <tr>
+        <td class="font-semibold">{{ r.name }}</td>
+        <td class="text-sm">{{ r.template.name }}</td>
+        <td>{{ r.frequency.value }}</td>
+        <td>{{ r.next_run_date.isoformat() }}</td>
+        <td>{% if r.is_active %}<span class="badge badge-paid">نشط</span>{% else %}<span class="badge badge-cancelled">موقوف</span>{% endif %}</td>
+      </tr>
+    {% else %}
+      <tr><td colspan="5" class="text-center text-slate-400 py-8">لا توجد قيود متكررة</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

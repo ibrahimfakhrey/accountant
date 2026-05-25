@@ -1,0 +1,69 @@
+{% extends "base.html" %}
+{% block page_title %}{{ asset.name }}{% endblock %}
+{% block content %}
+<div class="grid grid-cols-3 gap-4">
+  <div class="card p-6 col-span-2">
+    <div class="flex items-start justify-between mb-4">
+      <div>
+        <h2 class="text-xl font-bold text-navy-900">{{ asset.name }}</h2>
+        <div class="text-sm text-slate-500 mt-1">
+          {{ asset.account.code if asset.account else '' }} · {{ asset.account.name_ar or asset.account.name if asset.account else '' }}
+        </div>
+      </div>
+      <div class="text-right">
+        <div class="text-xs text-slate-500">القيمة الدفترية الحالية</div>
+        <div class="text-2xl font-bold text-navy-900 font-mono">{{ "%.2f"|format(asset.net_book_value) }}</div>
+      </div>
+    </div>
+
+    <div class="grid grid-cols-2 gap-4 text-sm mb-5">
+      <div><span class="text-slate-500">تاريخ الشراء:</span> {{ asset.purchase_date.isoformat() }}</div>
+      <div><span class="text-slate-500">العمر الإنتاجي:</span> {{ asset.useful_life_years }} سنة</div>
+      <div><span class="text-slate-500">التكلفة الأصلية:</span> <span class="font-mono">{{ "%.2f"|format(asset.cost) }}</span></div>
+      <div><span class="text-slate-500">القيمة التخريدية:</span> <span class="font-mono">{{ "%.2f"|format(asset.salvage_value) }}</span></div>
+      <div><span class="text-slate-500">الإهلاك السنوي:</span> <span class="font-mono">{{ "%.2f"|format(asset.annual_depreciation) }}</span></div>
+      <div><span class="text-slate-500">الإهلاك الشهري:</span> <span class="font-mono">{{ "%.2f"|format(asset.monthly_depreciation) }}</span></div>
+      <div><span class="text-slate-500">مجمع الإهلاك حتى الآن:</span> <span class="font-mono text-amber-600">{{ "%.2f"|format(asset.accumulated_depreciation) }}</span></div>
+      <div><span class="text-slate-500">المورد:</span>
+        {% if asset.vendor %}<a href="{{ url_for('vendors.index') }}" class="text-brand-600 hover:underline">{{ asset.vendor.name }}</a>{% else %}—{% endif %}
+      </div>
+    </div>
+
+    <hr class="my-4 border-slate-100">
+    <h3 class="font-bold text-navy-900 mb-3">سجل الإهلاك الشهري</h3>
+    <table class="data-table">
+      <thead><tr><th>الفترة</th><th class="text-left">قيمة الإهلاك</th><th class="text-left">القيمة الدفترية بعد</th><th>القيد</th></tr></thead>
+      <tbody>
+        {% for h in history %}
+        <tr>
+          <td>{{ h.period_month }}/{{ h.period_year }}</td>
+          <td class="text-left font-mono text-amber-600">{{ "%.2f"|format(h.amount) }}</td>
+          <td class="text-left font-mono font-bold">{{ "%.2f"|format(h.book_value_after) }}</td>
+          <td><a href="{{ url_for('journals.view', entry_id=h.journal_entry_id) }}" class="text-brand-600 hover:underline text-xs">عرض القيد</a></td>
+        </tr>
+        {% else %}
+        <tr><td colspan="4" class="text-center text-slate-400 py-6">لم يتم تسجيل إهلاك بعد</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  <div class="card p-6 bg-gradient-to-br from-navy-900 to-navy-700 text-white">
+    <h3 class="font-bold text-white mb-4">معادلة الإهلاك</h3>
+    <div class="bg-white/10 rounded-lg p-3 text-xs font-mono mb-3">
+      Annual = (Cost − Salvage) ÷ Life<br>
+      = ({{ "%.2f"|format(asset.cost) }} − {{ "%.2f"|format(asset.salvage_value) }}) ÷ {{ asset.useful_life_years }}<br>
+      = {{ "%.2f"|format(asset.annual_depreciation) }} / سنة
+    </div>
+    <div class="text-xs text-navy-200 mb-2">المتبقي من القيمة القابلة للإهلاك</div>
+    {% set remaining = asset.cost - asset.salvage_value - asset.accumulated_depreciation %}
+    <div class="text-2xl font-bold font-mono">{{ "%.2f"|format(remaining if remaining > 0 else 0) }}</div>
+    {% set max_dep = asset.cost - asset.salvage_value %}
+    {% set pct = (asset.accumulated_depreciation / max_dep * 100) if max_dep > 0 else 0 %}
+    <div class="h-2 bg-white/10 rounded-full overflow-hidden mt-3">
+      <div class="h-full bg-amber-400 rounded-full" style="width: {{ pct }}%"></div>
+    </div>
+    <div class="text-xs text-navy-200 mt-1">{{ "%.0f"|format(pct) }}% مُستهلَك</div>
+  </div>
+</div>
+{% endblock %}

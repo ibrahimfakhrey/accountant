@@ -1,0 +1,85 @@
+{% extends "base.html" %}
+{% block page_title %}{{ employee.name }}{% endblock %}
+{% block content %}
+<div class="grid grid-cols-3 gap-4">
+  <div class="card p-6 col-span-2">
+    <div class="flex items-start justify-between mb-5">
+      <div>
+        <div class="text-xs text-slate-500 font-mono">{{ employee.employee_number or '—' }}</div>
+        <h2 class="text-2xl font-bold text-navy-900">{{ employee.name }}</h2>
+        <div class="text-sm text-slate-500">{{ employee.job_title or '—' }}</div>
+      </div>
+      <div>
+        {% if employee.status.value == 'ACTIVE' %}<span class="badge badge-paid">نشط</span>
+        {% elif employee.status.value == 'SUSPENDED' %}<span class="badge badge-partial">موقوف</span>
+        {% else %}<span class="badge badge-cancelled">منتهي العقد</span>{% endif %}
+      </div>
+    </div>
+
+    <div class="grid grid-cols-2 gap-x-6 gap-y-3 text-sm">
+      <div><span class="text-slate-500">البريد:</span> <span dir="ltr">{{ employee.email or '—' }}</span></div>
+      <div><span class="text-slate-500">الهاتف:</span> <span dir="ltr">{{ employee.phone or '—' }}</span></div>
+      <div><span class="text-slate-500">نوع العقد:</span> {{ employee.contract_type.value if employee.contract_type else '—' }}</div>
+      <div><span class="text-slate-500">بدء العمل:</span> {{ employee.start_date.isoformat() if employee.start_date else '—' }}</div>
+      <div><span class="text-slate-500">الراتب الأساسي:</span> <span class="font-mono">{{ "%.2f"|format(employee.basic_salary) }}</span></div>
+      <div><span class="text-slate-500">البدلات الثابتة:</span> <span class="font-mono">{{ "%.2f"|format(employee.allowances) }}</span></div>
+      {% if employee.status.value == 'TERMINATED' %}
+      <div class="col-span-2 bg-red-50 border border-red-200 rounded-lg p-3 mt-2">
+        <div class="text-xs text-red-800 font-semibold">إنهاء العقد</div>
+        <div class="text-sm mt-1">التاريخ: {{ employee.termination_date.isoformat() if employee.termination_date else '—' }}</div>
+        <div class="text-sm">السبب: {{ employee.termination_reason.value if employee.termination_reason else '—' }}</div>
+        {% if employee.termination_notes %}<div class="text-xs text-slate-600 mt-1">{{ employee.termination_notes }}</div>{% endif %}
+      </div>
+      {% endif %}
+    </div>
+
+    <hr class="my-5 border-slate-100">
+    <h3 class="font-bold text-navy-900 mb-3">سجل كشوف الرواتب</h3>
+    <table class="data-table">
+      <thead><tr><th>الفترة</th><th>الأيام</th><th class="text-left">الأساسي</th><th class="text-left">البدلات</th><th class="text-left">الإضافات</th><th class="text-left">الخصومات</th><th class="text-left">الصافي</th><th></th></tr></thead>
+      <tbody>
+        {% for line in payslips %}
+        <tr>
+          <td>{{ line.run.period_month }}/{{ line.run.period_year }}</td>
+          <td>{{ line.working_days }}</td>
+          <td class="text-left font-mono">{{ "%.2f"|format(line.basic) }}</td>
+          <td class="text-left font-mono">{{ "%.2f"|format(line.allowances) }}</td>
+          <td class="text-left font-mono text-emerald-600">{{ "%.2f"|format((line.overtime or 0) + (line.bonus or 0)) }}</td>
+          <td class="text-left font-mono text-red-600">{{ "%.2f"|format((line.deductions or 0) + (line.absence_deduction or 0) + (line.late_deduction or 0) + (line.advance_deduction or 0)) }}</td>
+          <td class="text-left font-mono font-bold">{{ "%.2f"|format(line.net) }}</td>
+          <td><a href="{{ url_for('payroll.payslip_pdf', run_id=line.run_id, line_id=line.id) }}" target="_blank" class="text-brand-600 hover:underline text-xs">PDF</a></td>
+        </tr>
+        {% else %}
+        <tr><td colspan="8" class="text-center text-slate-400 py-6">لا توجد كشوفات بعد</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  <div class="space-y-4">
+    <div class="card p-5 bg-gradient-to-br from-navy-900 to-navy-700 text-white">
+      <div class="text-xs text-navy-200 mb-1">إجمالي ما استلمه</div>
+      <div class="text-3xl font-bold font-mono">{{ "%.2f"|format(employee.total_received) }}</div>
+      <div class="text-xs text-navy-200 mt-1">{{ active_company.base_currency }} منذ {{ employee.start_date.isoformat() if employee.start_date else 'بداية التعاقد' }}</div>
+    </div>
+
+    {% if employee.status.value != 'TERMINATED' %}
+    <div class="card p-5 border-red-100 bg-red-50/50">
+      <h3 class="font-bold text-red-800 mb-3">⚠ إنهاء العقد</h3>
+      <form method="POST" action="{{ url_for('payroll.terminate', employee_id=employee.id) }}" class="space-y-2" onsubmit="return confirm('تأكيد إنهاء العقد؟ لا يمكن التراجع تلقائياً.')">
+        <select name="reason" required class="select text-sm">
+          <option value="RESIGNATION">استقالة</option>
+          <option value="DISMISSAL">فصل</option>
+          <option value="CONTRACT_END">انتهاء عقد</option>
+          <option value="OTHER">أخرى</option>
+        </select>
+        <input type="date" name="termination_date" value="{{ today_str if today_str else '' }}" class="input text-sm" id="term_date">
+        <textarea name="notes" rows="2" placeholder="ملاحظات (اختياري)" class="textarea text-sm"></textarea>
+        <button type="submit" class="btn-danger w-full">تسجيل الإنهاء</button>
+      </form>
+    </div>
+    <script>document.getElementById('term_date').value = new Date().toISOString().split('T')[0];</script>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}

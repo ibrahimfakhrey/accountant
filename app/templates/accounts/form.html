@@ -5,18 +5,39 @@
   <form method="POST" class="space-y-4">
     <div class="grid grid-cols-2 gap-4">
       <div>
-        <label class="block text-sm font-semibold text-slate-700 mb-2">الكود</label>
-        <input type="text" name="code" required class="input font-mono">
-      </div>
-      <div>
-        <label class="block text-sm font-semibold text-slate-700 mb-2">التصنيف</label>
-        <select name="type" required class="select">
-          {% for t in account_types %}
-          <option value="{{ t.name }}">{{ t.value }}</option>
+        <label class="block text-sm font-semibold text-slate-700 mb-2">الحساب الأب (اختياري)</label>
+        <select name="parent_id" id="parent_id" class="select" onchange="onParentOrTypeChange()">
+          <option value="">— حساب رئيسي —</option>
+          {% for p in parents %}
+          <option value="{{ p.id }}" data-type="{{ p.type.name }}">{{ p.code }} — {{ p.name_ar or p.name }}</option>
           {% endfor %}
         </select>
       </div>
+      <div>
+        <label class="block text-sm font-semibold text-slate-700 mb-2">التصنيف</label>
+        <select name="type" id="type" required class="select" onchange="onParentOrTypeChange()">
+          <option value="ASSET">ASSET — أصول</option>
+          <option value="LIABILITY">LIABILITY — التزامات</option>
+          <option value="EQUITY">EQUITY — حقوق ملكية</option>
+          <option value="REVENUE">REVENUE — إيرادات</option>
+          <option value="EXPENSE">EXPENSE — مصروفات</option>
+        </select>
+        <p id="type-locked-hint" class="text-xs text-slate-500 mt-1 hidden">مأخوذ من الحساب الأب تلقائياً</p>
+      </div>
     </div>
+
+    <div>
+      <label class="block text-sm font-semibold text-slate-700 mb-2">
+        الكود
+        <span id="code-auto-badge" class="badge bg-emerald-50 text-emerald-700 mr-2 hidden">تم التوليد تلقائياً</span>
+      </label>
+      <div class="relative">
+        <input type="text" name="code" id="code" class="input font-mono pl-24" placeholder="مثلاً 5280">
+        <button type="button" onclick="regenerateCode()" class="absolute left-2 top-1/2 -translate-y-1/2 text-xs bg-slate-100 hover:bg-brand-50 hover:text-brand-600 text-slate-600 px-2 py-1 rounded transition">↻ توليد</button>
+      </div>
+      <p class="text-xs text-slate-500 mt-1">يتولد تلقائياً عند اختيار التصنيف/الأب — قابل للتعديل يدوياً</p>
+    </div>
+
     <div>
       <label class="block text-sm font-semibold text-slate-700 mb-2">الاسم بالعربية</label>
       <input type="text" name="name_ar" class="input">
@@ -25,19 +46,75 @@
       <label class="block text-sm font-semibold text-slate-700 mb-2">الاسم بالإنجليزية</label>
       <input type="text" name="name" required dir="ltr" class="input">
     </div>
-    <div>
-      <label class="block text-sm font-semibold text-slate-700 mb-2">الحساب الأب (اختياري)</label>
-      <select name="parent_id" class="select">
-        <option value="">— حساب رئيسي —</option>
-        {% for p in parents %}
-        <option value="{{ p.id }}">{{ p.code }} — {{ p.name_ar or p.name }}</option>
-        {% endfor %}
-      </select>
-    </div>
+
     <div class="flex justify-end gap-2 pt-2">
       <a href="{{ url_for('accounts.index') }}" class="btn-secondary">إلغاء</a>
       <button type="submit" class="btn-primary">إضافة</button>
     </div>
   </form>
 </div>
+
+<script>
+const parentSelect = document.getElementById('parent_id');
+const typeSelect = document.getElementById('type');
+const codeInput = document.getElementById('code');
+const codeBadge = document.getElementById('code-auto-badge');
+const typeHint = document.getElementById('type-locked-hint');
+let lastAutoCode = '';   // tracks the most recent auto-generated value
+
+async function fetchSuggestion() {
+  const params = new URLSearchParams();
+  if (parentSelect.value) params.set('parent_id', parentSelect.value);
+  if (typeSelect.value) params.set('type', typeSelect.value);
+  try {
+    const res = await fetch(`/accounts/suggest-code?${params.toString()}`);
+    return await res.json();
+  } catch (e) {
+    return {code: '', parent_type: null};
+  }
+}
+
+async function onParentOrTypeChange() {
+  // If user picked a parent, lock the type to the parent's type
+  const parentOpt = parentSelect.options[parentSelect.selectedIndex];
+  const parentType = parentOpt ? parentOpt.dataset.type : null;
+  if (parentType) {
+    typeSelect.value = parentType;
+    typeSelect.disabled = true;
+    typeHint.classList.remove('hidden');
+  } else {
+    typeSelect.disabled = false;
+    typeHint.classList.add('hidden');
+  }
+
+  // Suggest a code only if the field is empty OR still showing the previous auto value
+  const isUserEdited = codeInput.value && codeInput.value !== lastAutoCode;
+  if (!isUserEdited) {
+    const data = await fetchSuggestion();
+    if (data.code) {
+      codeInput.value = data.code;
+      lastAutoCode = data.code;
+      codeBadge.classList.remove('hidden');
+    }
+  }
+}
+
+async function regenerateCode() {
+  const data = await fetchSuggestion();
+  if (data.code) {
+    codeInput.value = data.code;
+    lastAutoCode = data.code;
+    codeBadge.classList.remove('hidden');
+  }
+}
+
+codeInput.addEventListener('input', () => {
+  if (codeInput.value !== lastAutoCode) {
+    codeBadge.classList.add('hidden');
+  }
+});
+
+// Initial suggestion on page load
+onParentOrTypeChange();
+</script>
 {% endblock %}

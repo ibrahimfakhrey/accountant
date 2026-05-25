@@ -1,0 +1,28 @@
+{% extends "base.html" %}
+{% block page_title %}قوالب القيود{% endblock %}
+{% block content %}
+<div class="card p-6">
+  <div class="flex items-center justify-between mb-5">
+    <div>
+      <h2 class="font-bold text-navy-900">قوالب القيود</h2>
+      <p class="text-sm text-slate-500 mt-1">قوالب جاهزة للقيود اللي بتتكرر بنفس الحسابات</p>
+    </div>
+    <a href="{{ url_for('journals.templates_new') }}" class="btn-primary">+ قالب جديد</a>
+  </div>
+  <table class="data-table">
+    <thead><tr><th>الاسم</th><th>الوصف</th><th>عدد السطور</th><th></th></tr></thead>
+    <tbody>
+    {% for t in templates %}
+      <tr>
+        <td class="font-semibold">{{ t.name }}</td>
+        <td class="text-sm text-slate-500">{{ t.description or '—' }}</td>
+        <td>{{ t.lines | length }}</td>
+        <td class="text-left"><a href="{{ url_for('journals.use_template', template_id=t.id) }}" class="text-brand-600 hover:underline text-sm">استخدام</a></td>
+      </tr>
+    {% else %}
+      <tr><td colspan="4" class="text-center text-slate-400 py-8">لا توجد قوالب</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

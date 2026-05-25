@@ -1,0 +1,103 @@
+{% extends "base.html" %}
+{% block page_title %}فاتورة مورد {{ bill.number }}{% endblock %}
+{% block content %}
+<div class="grid grid-cols-3 gap-4">
+  <div class="card p-6 col-span-2">
+    <div class="flex items-start justify-between mb-5">
+      <div>
+        <div class="text-xs text-slate-500">فاتورة مورد</div>
+        <h2 class="text-2xl font-bold text-navy-900">{{ bill.number }}</h2>
+        {% if bill.supplier_invoice_number %}<div class="text-xs text-slate-500">مرجع المورد: {{ bill.supplier_invoice_number }}</div>{% endif %}
+      </div>
+      <div class="flex items-center gap-2">
+        {% set sc = {'DRAFT':'badge-draft','POSTED':'badge-sent','PARTIALLY_PAID':'badge-partial','PAID':'badge-paid','OVERDUE':'badge-overdue','CANCELLED':'badge-cancelled'} %}
+        <span class="badge {{ sc.get(bill.status.value, 'badge-draft') }} text-base px-3 py-1.5">{{ bill.status.value }}</span>
+        {% if bill.journal_entry_id %}
+        <a href="{{ url_for('journals.view', entry_id=bill.journal_entry_id) }}" class="btn-secondary text-sm">📒 القيد</a>
+        {% endif %}
+      </div>
+    </div>
+
+    <div class="grid grid-cols-2 gap-4 text-sm mb-4">
+      <div><span class="text-slate-500">المورد:</span> <span class="font-semibold">{{ bill.vendor.name if bill.vendor else '— بدون —' }}</span></div>
+      <div class="text-left"><span class="text-slate-500">طريقة الدفع:</span> {{ bill.payment_method.value }}</div>
+      <div><span class="text-slate-500">تاريخ الفاتورة:</span> {{ bill.issue_date.isoformat() }}</div>
+      <div class="text-left"><span class="text-slate-500">الاستحقاق:</span> {{ bill.due_date.isoformat() }}</div>
+    </div>
+
+    <table class="data-table">
+      <thead><tr><th>الوصف</th><th>النوع</th><th>الحساب</th><th>الكمية</th><th>السعر</th><th class="text-left">الإجمالي</th></tr></thead>
+      <tbody>
+        {% for item in bill.items %}
+        <tr>
+          <td>
+            {{ item.description }}
+            {% if item.created_asset_id %}<a href="{{ url_for('assets.view', asset_id=item.created_asset_id) }}" class="text-xs text-brand-600 hover:underline block mt-1">🏗️ تم إنشاء الأصل تلقائياً</a>{% endif %}
+            {% if item.line_type.value == 'FIXED_ASSET' %}<div class="text-xs text-slate-500 mt-1">عمر: {{ item.useful_life_years }} سنة · قيمة تخريدية: {{ "%.2f"|format(item.salvage_value or 0) }}</div>{% endif %}
+          </td>
+          <td>
+            {% if item.line_type.value == 'EXPENSE' %}<span class="badge bg-blue-50 text-blue-700">مصروف</span>
+            {% elif item.line_type.value == 'FIXED_ASSET' %}<span class="badge bg-purple-50 text-purple-700">أصل ثابت</span>
+            {% else %}<span class="badge bg-emerald-50 text-emerald-700">مخزون</span>{% endif %}
+          </td>
+          <td class="text-sm"><span class="font-mono text-xs text-slate-500">{{ item.account.code }}</span> · {{ item.account.name_ar or item.account.name }}</td>
+          <td class="font-mono">{{ "%.2f"|format(item.quantity) }}</td>
+          <td class="font-mono">{{ "%.2f"|format(item.unit_price) }}</td>
+          <td class="text-left font-mono">{{ "%.2f"|format(item.line_total) }}</td>
+        </tr>
+        {% endfor %}
+        <tr><td colspan="5" class="text-left font-semibold py-2">المجموع قبل الضريبة</td><td class="text-left font-mono">{{ "%.2f"|format(bill.subtotal) }}</td></tr>
+        <tr><td colspan="5" class="text-left py-2">الضريبة ({{ "%.2f"|format(bill.tax_rate) }}%)</td><td class="text-left font-mono">{{ "%.2f"|format(bill.tax_amount) }}</td></tr>
+        <tr class="border-t-2 border-navy-900"><td colspan="5" class="text-left font-bold py-3">الإجمالي</td><td class="text-left font-mono font-bold text-lg">{{ "%.2f"|format(bill.total) }} {{ bill.currency }}</td></tr>
+        <tr><td colspan="5" class="text-left text-emerald-600 py-2">المدفوع</td><td class="text-left font-mono text-emerald-600">{{ "%.2f"|format(bill.paid_amount or 0) }}</td></tr>
+        <tr><td colspan="5" class="text-left font-bold text-amber-600 py-2">المتبقي</td><td class="text-left font-mono font-bold text-amber-600">{{ "%.2f"|format(bill.balance) }}</td></tr>
+      </tbody>
+    </table>
+
+    {% if bill.notes %}
+    <div class="mt-5 bg-slate-50 border border-slate-200 rounded-xl p-4 text-sm">
+      <div class="text-xs text-slate-500 font-semibold mb-1">ملاحظات</div>
+      {{ bill.notes }}
+    </div>
+    {% endif %}
+  </div>
+
+  <div class="space-y-4">
+    {% if bill.status.value == 'DRAFT' %}
+    <div class="card p-5">
+      <h3 class="font-bold text-navy-900 mb-3">تسجيل الفاتورة</h3>
+      <form method="POST" action="{{ url_for('vendor_bills.post', bill_id=bill.id) }}">
+        <button type="submit" class="btn-primary w-full">حفظ + تسجيل القيد</button>
+      </form>
+    </div>
+    {% endif %}
+
+    {% if bill.balance > 0.01 and bill.status.value in ['POSTED', 'PARTIALLY_PAID', 'OVERDUE'] %}
+    <div class="card p-5">
+      <h3 class="font-bold text-navy-900 mb-3">تسجيل دفعة للمورد</h3>
+      <form method="POST" action="{{ url_for('vendor_bills.pay', bill_id=bill.id) }}" class="space-y-3">
+        <input type="number" name="amount" step="0.01" max="{{ bill.balance }}" placeholder="المبلغ" required class="input text-sm">
+        <select name="payment_method_id" required class="select text-sm">
+          {% for pm in payment_methods %}<option value="{{ pm.id }}" {% if pm.is_default %}selected{% endif %}>{{ pm.name_ar or pm.name }}</option>{% endfor %}
+        </select>
+        <button type="submit" class="btn-accent w-full">تسجيل الدفعة</button>
+      </form>
+    </div>
+    {% endif %}
+
+    {% if bill.payments %}
+    <div class="card p-5">
+      <h3 class="font-bold text-navy-900 mb-3">الدفعات</h3>
+      <div class="space-y-2 text-sm">
+      {% for p in bill.payments %}
+        <div class="flex justify-between py-2 border-b border-slate-100">
+          <span>{{ p.payment_date.isoformat() }} · {% if p.payment_method %}{{ p.payment_method.name_ar or p.payment_method.name }}{% else %}{{ p.method }}{% endif %}</span>
+          <span class="font-mono font-semibold text-emerald-600">{{ "%.2f"|format(p.amount) }}</span>
+        </div>
+      {% endfor %}
+      </div>
+    </div>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}

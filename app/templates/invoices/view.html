@@ -6,10 +6,16 @@
     <div class="flex items-start justify-between mb-6">
       <div>
         <div class="text-xs text-slate-500">فاتورة</div>
-        <h2 class="text-2xl font-bold text-navy-900">#{{ invoice.number }}</h2>
+        <h2 class="text-2xl font-bold text-navy-900">{{ invoice.number }}</h2>
       </div>
-      {% set status_class = {'DRAFT':'badge-draft','SENT':'badge-sent','PAID':'badge-paid','PARTIALLY_PAID':'badge-partial','OVERDUE':'badge-overdue','CANCELLED':'badge-cancelled','REFUNDED':'badge-refunded','PARTIALLY_REFUNDED':'badge-refunded'} %}
-      <span class="badge {{ status_class.get(invoice.status.value, 'badge-draft') }} text-base px-3 py-1.5">{{ invoice.status.value }}</span>
+      <div class="flex items-center gap-2">
+        {% set status_class = {'DRAFT':'badge-draft','SENT':'badge-sent','PAID':'badge-paid','PARTIALLY_PAID':'badge-partial','OVERDUE':'badge-overdue','CANCELLED':'badge-cancelled','REFUNDED':'badge-refunded','PARTIALLY_REFUNDED':'badge-refunded'} %}
+        <span class="badge {{ status_class.get(invoice.status.value, 'badge-draft') }} text-base px-3 py-1.5">{{ invoice.status.value }}</span>
+        <a href="{{ url_for('invoices.preview_pdf', invoice_id=invoice.id) }}" target="_blank" class="btn-secondary text-sm">👁 معاينة PDF</a>
+        {% if invoice.status.value == 'DRAFT' %}
+        <a href="{{ url_for('invoices.edit', invoice_id=invoice.id) }}" class="btn-secondary text-sm">✏️ تعديل</a>
+        {% endif %}
+      </div>
     </div>
 
     <div class="grid grid-cols-2 gap-4 mb-6">
@@ -26,31 +32,61 @@
     </div>
 
     <table class="data-table">
-      <thead><tr><th>البند</th><th>الكمية</th><th>السعر</th><th class="text-left">الإجمالي</th></tr></thead>
+      <thead><tr><th>البند</th><th>الكمية</th><th>السعر</th><th>الخصم</th><th class="text-left">الصافي</th></tr></thead>
       <tbody>
         {% for item in invoice.items %}
         <tr>
-          <td>{{ item.description }}</td>
+          <td>
+            {{ item.description }}
+            {% if item.product %}<span class="text-xs text-slate-400">({{ item.product.name }})</span>{% endif %}
+          </td>
           <td class="font-mono">{{ "%.2f"|format(item.quantity) }}</td>
           <td class="font-mono">{{ "%.2f"|format(item.unit_price) }}</td>
-          <td class="text-left font-mono">{{ "%.2f"|format(item.total) }}</td>
+          <td class="font-mono text-amber-600">
+            {% if item.discount_type.value == 'PERCENT' %}{{ item.discount_value }}%
+            {% elif item.discount_type.value == 'FIXED' %}{{ "%.2f"|format(item.discount_value) }}
+            {% else %}—{% endif %}
+          </td>
+          <td class="text-left font-mono">{{ "%.2f"|format(item.line_total) }}</td>
         </tr>
         {% endfor %}
-        <tr><td colspan="3" class="text-left font-semibold py-2">المجموع قبل الضريبة</td><td class="text-left font-mono">{{ "%.2f"|format(invoice.subtotal) }}</td></tr>
-        <tr><td colspan="3" class="text-left font-semibold py-2">الضريبة ({{ "%.2f"|format(invoice.tax_rate) }}%)</td><td class="text-left font-mono">{{ "%.2f"|format(invoice.tax_amount) }}</td></tr>
-        <tr class="border-t-2 border-navy-900"><td colspan="3" class="text-left font-bold py-3">الإجمالي</td><td class="text-left font-mono font-bold text-lg">{{ "%.2f"|format(invoice.total) }} {{ invoice.currency }}</td></tr>
-        <tr><td colspan="3" class="text-left text-emerald-600 py-2">المدفوع</td><td class="text-left font-mono text-emerald-600">{{ "%.2f"|format(invoice.paid_amount or 0) }}</td></tr>
-        <tr><td colspan="3" class="text-left font-bold text-amber-600 py-2">المتبقي</td><td class="text-left font-mono font-bold text-amber-600">{{ "%.2f"|format(invoice.balance) }}</td></tr>
+        <tr><td colspan="4" class="text-left font-semibold py-2">إجمالي البنود</td><td class="text-left font-mono">{{ "%.2f"|format(invoice.subtotal) }}</td></tr>
+        {% if invoice.invoice_discount_amount and invoice.invoice_discount_amount > 0 %}
+        <tr><td colspan="4" class="text-left font-semibold py-2 text-amber-600">خصم الفاتورة</td><td class="text-left font-mono text-amber-600">−{{ "%.2f"|format(invoice.invoice_discount_amount) }}</td></tr>
+        <tr><td colspan="4" class="text-left py-2">الوعاء الضريبي</td><td class="text-left font-mono">{{ "%.2f"|format(invoice.taxable_base) }}</td></tr>
+        {% endif %}
+        <tr><td colspan="4" class="text-left py-2">الضريبة ({{ "%.2f"|format(invoice.tax_rate) }}%)</td><td class="text-left font-mono">{{ "%.2f"|format(invoice.tax_amount) }}</td></tr>
+        <tr class="border-t-2 border-navy-900"><td colspan="4" class="text-left font-bold py-3">الإجمالي</td><td class="text-left font-mono font-bold text-lg">{{ "%.2f"|format(invoice.total) }} {{ invoice.currency }}</td></tr>
+        <tr><td colspan="4" class="text-left text-emerald-600 py-2">المدفوع</td><td class="text-left font-mono text-emerald-600">{{ "%.2f"|format(invoice.paid_amount or 0) }}</td></tr>
+        <tr><td colspan="4" class="text-left font-bold text-amber-600 py-2">المتبقي</td><td class="text-left font-mono font-bold text-amber-600">{{ "%.2f"|format(invoice.balance) }}</td></tr>
       </tbody>
     </table>
+
+    {% if invoice.internal_notes %}
+    <div class="mt-5 bg-amber-50 border border-amber-200 rounded-xl p-4">
+      <div class="text-xs text-amber-800 font-semibold mb-1">🔒 ملاحظات داخلية (لا تظهر للعميل)</div>
+      <div class="text-sm text-amber-900 whitespace-pre-wrap">{{ invoice.internal_notes }}</div>
+    </div>
+    {% endif %}
   </div>
 
   <div class="space-y-4">
     {% if invoice.status.value == 'DRAFT' %}
     <div class="card p-5">
       <h3 class="font-bold text-navy-900 mb-3">إرسال الفاتورة</h3>
-      <form method="POST" action="{{ url_for('invoices.send', invoice_id=invoice.id) }}">
+      <form method="POST" action="{{ url_for('invoices.send', invoice_id=invoice.id) }}" class="space-y-3">
+        <label class="flex items-center gap-2 text-sm cursor-pointer">
+          <input type="checkbox" name="email_customer" value="1" checked class="w-4 h-4 rounded text-brand-600">
+          <span>إرسال إيميل للعميل</span>
+        </label>
         <button type="submit" class="btn-primary w-full">إرسال + تسجيل قيد</button>
+      </form>
+    </div>
+    {% else %}
+    <div class="card p-5">
+      <h3 class="font-bold text-navy-900 mb-3">إعادة الإرسال</h3>
+      <form method="POST" action="{{ url_for('invoices.resend', invoice_id=invoice.id) }}">
+        <button type="submit" class="btn-secondary w-full text-sm">📧 إعادة إرسال إيميل للعميل</button>
       </form>
     </div>
     {% endif %}
@@ -60,10 +96,15 @@
       <h3 class="font-bold text-navy-900 mb-3">تسجيل دفعة</h3>
       <form method="POST" action="{{ url_for('invoices.pay', invoice_id=invoice.id) }}" class="space-y-3">
         <input type="number" name="amount" step="0.01" max="{{ invoice.balance }}" placeholder="المبلغ" required class="input text-sm">
-        <select name="method" class="select text-sm">
-          <option value="cash">نقدي</option>
-          <option value="bank">بنك</option>
+        <select name="payment_method_id" required class="select text-sm">
+          {% for pm in active_company.payment_methods %}{% if pm.is_active %}
+          <option value="{{ pm.id }}" {% if pm.is_default %}selected{% endif %}>{{ pm.name_ar or pm.name }}</option>
+          {% endif %}{% endfor %}
         </select>
+        <label class="flex items-center gap-2 text-xs cursor-pointer">
+          <input type="checkbox" name="notify_customer" value="1" checked class="w-4 h-4 rounded text-brand-600">
+          <span>إشعار العميل بالإيميل</span>
+        </label>
         <button type="submit" class="btn-accent w-full">تسجيل الدفعة</button>
       </form>
     </div>
@@ -91,10 +132,33 @@
       <div class="space-y-2 text-sm">
       {% for p in invoice.payments %}
         <div class="flex justify-between py-2 border-b border-slate-100">
-          <span>{{ p.payment_date.isoformat() }} · {{ p.method }}</span>
+          <span>
+            {{ p.payment_date.isoformat() }}
+            <span class="text-xs text-slate-500">· {% if p.payment_method %}{{ p.payment_method.name_ar or p.payment_method.name }}{% else %}{{ p.method }}{% endif %}</span>
+          </span>
           <span class="font-mono font-semibold text-emerald-600">{{ "%.2f"|format(p.amount) }}</span>
         </div>
       {% endfor %}
+      </div>
+    </div>
+    {% endif %}
+
+    {% if invoice.send_reminders and invoice.status.value in ['SENT', 'PARTIALLY_PAID', 'OVERDUE'] %}
+    <div class="card p-5 bg-sky-50/50 border-sky-100">
+      <h3 class="font-bold text-navy-900 mb-2 text-sm">🔔 التذكيرات التلقائية</h3>
+      <div class="space-y-1 text-xs">
+        <div class="flex justify-between">
+          <span class="text-slate-600">قبل 7 أيام:</span>
+          <span>{% if invoice.reminder_7d_sent_at %}✓ تم الإرسال{% else %}في الانتظار{% endif %}</span>
+        </div>
+        <div class="flex justify-between">
+          <span class="text-slate-600">قبل 3 أيام:</span>
+          <span>{% if invoice.reminder_3d_sent_at %}✓ تم الإرسال{% else %}في الانتظار{% endif %}</span>
+        </div>
+        <div class="flex justify-between">
+          <span class="text-slate-600">عند التأخر:</span>
+          <span>{% if invoice.overdue_notified_at %}✓ تم الإرسال{% else %}في الانتظار{% endif %}</span>
+        </div>
       </div>
     </div>
     {% endif %}

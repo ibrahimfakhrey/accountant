@@ -49,12 +49,16 @@ class Account(db.Model):
 
     @property
     def balance(self):
-        from app.models.journal import JournalLine
+        """Net balance, excluding paused journal entries."""
+        from app.models.journal import JournalLine, JournalEntry
         from sqlalchemy import func
         result = db.session.query(
             func.coalesce(func.sum(JournalLine.debit_base), 0),
             func.coalesce(func.sum(JournalLine.credit_base), 0),
-        ).filter(JournalLine.account_id == self.id).first()
+        ).select_from(JournalLine).join(JournalEntry).filter(
+            JournalLine.account_id == self.id,
+            JournalEntry.is_active.is_(True),
+        ).first()
         debit, credit = float(result[0] or 0), float(result[1] or 0)
         if self.normal_side == NormalSide.DEBIT:
             return debit - credit

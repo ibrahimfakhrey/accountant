@@ -2,6 +2,7 @@
 from datetime import date
 from app import db
 from app.models import JournalEntry, JournalLine, Account
+from app.services.numbering import next_number
 
 
 class LedgerError(Exception):
@@ -43,6 +44,7 @@ def post_journal(
 
     entry = JournalEntry(
         company_id=company_id,
+        number=next_number(company_id, "JOURNAL"),
         date=entry_date or date.today(),
         description=description,
         reference=reference,
@@ -98,8 +100,9 @@ def reverse_journal(entry_id, created_by=None):
 
     entry = JournalEntry(
         company_id=original.company_id,
+        number=next_number(original.company_id, "JOURNAL"),
         date=date.today(),
-        description=f"عكس قيد #{original.id}: {original.description}",
+        description=f"عكس قيد {original.number or '#' + str(original.id)}: {original.description}",
         reference=original.reference,
         currency=original.currency,
         exchange_rate=original.exchange_rate,

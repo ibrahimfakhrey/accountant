@@ -1,0 +1,33 @@
+{% extends "base.html" %}
+{% block page_title %}طرق الدفع{% endblock %}
+{% block content %}
+<div class="card p-6">
+  <div class="flex items-center justify-between mb-5">
+    <div>
+      <h2 class="font-bold text-navy-900">طرق الدفع</h2>
+      <p class="text-sm text-slate-500 mt-1">كل طريقة مربوطة بحساب في شجرة الحسابات — تحدد فين بتدخل الفلوس</p>
+    </div>
+    <a href="{{ url_for('payment_methods.new') }}" class="btn-primary">+ طريقة دفع</a>
+  </div>
+  <table class="data-table">
+    <thead><tr><th>الاسم</th><th>الحساب المربوط</th><th>الافتراضي</th><th>الحالة</th><th></th></tr></thead>
+    <tbody>
+    {% for m in methods %}
+      <tr>
+        <td class="font-semibold">{{ m.name_ar or m.name }} <span class="text-xs text-slate-400">{{ m.name }}</span></td>
+        <td class="text-sm"><span class="font-mono text-slate-500">{{ m.account.code }}</span> · {{ m.account.name_ar or m.account.name }}</td>
+        <td>{% if m.is_default %}<span class="badge bg-blue-50 text-blue-700">افتراضي</span>{% endif %}</td>
+        <td>{% if m.is_active %}<span class="badge badge-paid">نشط</span>{% else %}<span class="badge badge-cancelled">موقوف</span>{% endif %}</td>
+        <td class="text-left">
+          <form method="POST" action="{{ url_for('payment_methods.toggle', method_id=m.id) }}" class="inline">
+            <button type="submit" class="text-xs text-slate-600 hover:text-brand-600">{% if m.is_active %}إيقاف{% else %}تفعيل{% endif %}</button>
+          </form>
+        </td>
+      </tr>
+    {% else %}
+      <tr><td colspan="5" class="text-center text-slate-400 py-8">لا توجد طرق دفع</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

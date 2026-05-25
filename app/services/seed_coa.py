@@ -16,7 +16,7 @@ DEFAULT_COA = [
     ("1210", "Equipment", "المعدات", AccountType.ASSET, "1200"),
     ("1220", "Vehicles", "السيارات", AccountType.ASSET, "1200"),
     ("1230", "Buildings", "المباني", AccountType.ASSET, "1200"),
-    ("1290", "Accumulated Depreciation", "مجمع الاستهلاك", AccountType.ASSET, "1200"),
+    ("1290", "Accumulated Depreciation — Fixed Assets", "مجمع إهلاك الأصول الثابتة", AccountType.ASSET, "1200"),
     # LIABILITIES (2xxx)
     ("2000", "Liabilities", "الالتزامات", AccountType.LIABILITY, None),
     ("2100", "Current Liabilities", "الالتزامات قصيرة الأجل", AccountType.LIABILITY, "2000"),
@@ -44,15 +44,16 @@ DEFAULT_COA = [
     ("5220", "Rent Expense", "مصروف الإيجار", AccountType.EXPENSE, "5200"),
     ("5230", "Utilities", "المرافق", AccountType.EXPENSE, "5200"),
     ("5240", "Marketing", "التسويق والإعلان", AccountType.EXPENSE, "5200"),
-    ("5250", "Depreciation Expense", "مصروف الاستهلاك", AccountType.EXPENSE, "5200"),
+    ("5250", "Fixed Assets Depreciation Expense", "مصاريف إهلاك الأصول الثابتة", AccountType.EXPENSE, "5200"),
     ("5260", "Office Supplies", "أدوات مكتبية", AccountType.EXPENSE, "5200"),
     ("5270", "Bank Charges", "عمولات البنك", AccountType.EXPENSE, "5200"),
 ]
 
 
 def seed_default_coa(company_id):
-    """Create the default Chart of Accounts for a new company."""
+    """Create the default Chart of Accounts AND payment methods for a new company."""
     from app.models.account import NORMAL_SIDE_FOR_TYPE
+    from app.models import PaymentMethod
 
     code_to_id = {}
     for code, name, name_ar, acc_type, parent_code in DEFAULT_COA:
@@ -69,4 +70,19 @@ def seed_default_coa(company_id):
         db.session.add(acc)
         db.session.flush()
         code_to_id[code] = acc.id
+
+    # Default payment methods: cash → 1110, bank → 1120
+    cash_acc_id = code_to_id.get("1110")
+    bank_acc_id = code_to_id.get("1120")
+    if cash_acc_id:
+        db.session.add(PaymentMethod(
+            company_id=company_id, name="Cash", name_ar="نقدي",
+            account_id=cash_acc_id, is_default=True,
+        ))
+    if bank_acc_id:
+        db.session.add(PaymentMethod(
+            company_id=company_id, name="Bank Transfer", name_ar="حوالة بنكية",
+            account_id=bank_acc_id,
+        ))
+
     db.session.commit()

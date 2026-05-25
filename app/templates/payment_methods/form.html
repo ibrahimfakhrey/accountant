@@ -1,0 +1,29 @@
+{% extends "base.html" %}
+{% block page_title %}طريقة دفع جديدة{% endblock %}
+{% block content %}
+<div class="card p-6 max-w-2xl">
+  <form method="POST" class="space-y-4">
+    <div class="grid grid-cols-2 gap-4">
+      <div>
+        <label class="block text-sm font-semibold text-slate-700 mb-2">الاسم (إنجليزي)</label>
+        <input type="text" name="name" required dir="ltr" class="input" placeholder="Visa, STC Pay, MADA, Cheque…">
+      </div>
+      <div>
+        <label class="block text-sm font-semibold text-slate-700 mb-2">الاسم (عربي)</label>
+        <input type="text" name="name_ar" class="input" placeholder="فيزا، STC Pay، مدى، شيك…">
+      </div>
+    </div>
+    <div>
+      <label class="block text-sm font-semibold text-slate-700 mb-2">الحساب المربوط (الحساب اللي بتدخله الفلوس)</label>
+      <select name="account_id" required class="select">
+        {% for a in accounts %}<option value="{{ a.id }}">{{ a.code }} — {{ a.name_ar or a.name }}</option>{% endfor %}
+      </select>
+      <p class="text-xs text-slate-500 mt-1">عند تسجيل دفعة، النظام سيقيدها على هذا الحساب</p>
+    </div>
+    <div class="flex justify-end gap-2 pt-2">
+      <a href="{{ url_for('payment_methods.index') }}" class="btn-secondary">إلغاء</a>
+      <button type="submit" class="btn-primary">إضافة</button>
+    </div>
+  </form>
+</div>
+{% endblock %}

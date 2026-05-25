@@ -1,0 +1,43 @@
+{% extends "base.html" %}
+{% block page_title %}جدول تلقائي جديد{% endblock %}
+{% block content %}
+<div class="card p-6 max-w-2xl">
+  <form method="POST" class="space-y-4">
+    <div>
+      <label class="block text-sm font-semibold text-slate-700 mb-2">الاسم</label>
+      <input type="text" name="name" required class="input" placeholder="مثلاً: إيجار شهري">
+    </div>
+    <div>
+      <label class="block text-sm font-semibold text-slate-700 mb-2">القالب</label>
+      <select name="template_id" required class="select">
+        {% for t in templates %}<option value="{{ t.id }}">{{ t.name }}</option>{% endfor %}
+      </select>
+      {% if not templates %}<p class="text-xs text-amber-600 mt-1">لازم تنشئ قالب أولاً. <a href="{{ url_for('journals.templates_new') }}" class="underline">قالب جديد</a></p>{% endif %}
+    </div>
+    <div class="grid grid-cols-3 gap-4">
+      <div>
+        <label class="block text-sm font-semibold text-slate-700 mb-2">التكرار</label>
+        <select name="frequency" required class="select">
+          <option value="DAILY">يومي</option>
+          <option value="WEEKLY">أسبوعي</option>
+          <option value="MONTHLY" selected>شهري</option>
+          <option value="YEARLY">سنوي</option>
+        </select>
+      </div>
+      <div>
+        <label class="block text-sm font-semibold text-slate-700 mb-2">أول تشغيل</label>
+        <input type="date" name="next_run_date" required class="input" id="nr">
+      </div>
+      <div>
+        <label class="block text-sm font-semibold text-slate-700 mb-2">آخر تشغيل (اختياري)</label>
+        <input type="date" name="end_date" class="input">
+      </div>
+    </div>
+    <div class="flex justify-end gap-2 pt-2">
+      <a href="{{ url_for('journals.recurring_list') }}" class="btn-secondary">إلغاء</a>
+      <button type="submit" class="btn-primary" {% if not templates %}disabled{% endif %}>إنشاء</button>
+    </div>
+  </form>
+</div>
+<script>document.getElementById('nr').value = new Date().toISOString().split('T')[0];</script>
+{% endblock %}

@@ -1,0 +1,47 @@
+{% extends "base.html" %}
+{% block page_title %}تقرير الأصول الثابتة{% endblock %}
+{% block content %}
+<div class="card p-6">
+  <div class="flex items-center justify-between mb-3">
+    <h2 class="font-bold text-navy-900">تقرير الأصول الثابتة — جميع الأصول النشطة</h2>
+    <div class="flex gap-2">
+      <a href="{{ url_for('reports.export', report_type='fixed-assets', fmt='pdf') }}" class="btn-secondary text-sm">📄 PDF</a>
+      <a href="{{ url_for('reports.export', report_type='fixed-assets', fmt='excel') }}" class="btn-secondary text-sm">📊 Excel</a>
+    </div>
+  </div>
+  <table class="data-table">
+    <thead><tr>
+      <th>الأصل</th><th>المورد</th><th>تاريخ الشراء</th><th>العمر</th>
+      <th class="text-left">التكلفة</th><th class="text-left">إهلاك سنوي</th>
+      <th class="text-left">مجمع الإهلاك</th><th class="text-left">القيمة الدفترية</th>
+    </tr></thead>
+    <tbody>
+      {% for r in data.rows %}
+      <tr>
+        <td>
+          <a href="{{ url_for('assets.view', asset_id=r.id) }}" class="font-semibold hover:text-brand-600">{{ r.name }}</a>
+          <div class="text-xs text-slate-500">{{ r.account_code }} · {{ r.account_name }}</div>
+        </td>
+        <td class="text-sm">{{ r.vendor or '—' }}</td>
+        <td class="text-sm">{{ r.purchase_date.isoformat() }}</td>
+        <td class="text-sm">{{ r.useful_life_years }} سنة</td>
+        <td class="text-left font-mono">{{ "%.2f"|format(r.cost) }}</td>
+        <td class="text-left font-mono text-amber-700">{{ "%.2f"|format(r.annual_dep) }}</td>
+        <td class="text-left font-mono text-amber-600">{{ "%.2f"|format(r.accumulated_dep) }}</td>
+        <td class="text-left font-mono font-bold">{{ "%.2f"|format(r.nbv) }}</td>
+      </tr>
+      {% else %}
+      <tr><td colspan="8" class="text-center text-slate-400 py-8">لا توجد أصول ثابتة</td></tr>
+      {% endfor %}
+      <tr class="border-t-2 border-navy-900 font-bold bg-navy-50">
+        <td colspan="4" class="py-3">الإجمالي</td>
+        <td class="text-left font-mono">{{ "%.2f"|format(data.totals.cost) }}</td>
+        <td class="text-left font-mono text-amber-700">{{ "%.2f"|format(data.totals.annual_dep) }}</td>
+        <td class="text-left font-mono text-amber-700">{{ "%.2f"|format(data.totals.accumulated_dep) }}</td>
+        <td class="text-left font-mono text-lg">{{ "%.2f"|format(data.totals.nbv) }}</td>
+      </tr>
+    </tbody>
+  </table>
+  <p class="text-xs text-slate-400 mt-3">⚠ إجمالي القيمة الدفترية يطابق رصيد الأصول الثابتة في الميزانية</p>
+</div>
+{% endblock %}

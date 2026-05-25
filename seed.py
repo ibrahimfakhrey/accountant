@@ -1,8 +1,9 @@
 """Seed a demo company with sample data for testing."""
 from datetime import date, timedelta
 from app import create_app, db
-from app.models import User, Company, Customer, Vendor, Employee
+from app.models import User, Company, Customer, Vendor, Employee, EmployeeStatus, ContractType
 from app.services.seed_coa import seed_default_coa
+from app.services.numbering import next_number
 
 
 def seed():
@@ -46,10 +47,15 @@ def seed():
 
         # Sample employees
         for name, salary in [("أحمد محمد", 8000), ("فاطمة علي", 12000), ("خالد إبراهيم", 6500)]:
+            emp_no = next_number(company.id, "EMPLOYEE")
             db.session.add(Employee(
                 company_id=company.id, name=name,
+                employee_number=emp_no,
                 basic_salary=salary, allowances=salary * 0.15, deductions=salary * 0.10,
                 job_title="موظف",
+                status=EmployeeStatus.ACTIVE,
+                contract_type=ContractType.FULL_TIME,
+                start_date=date(2024, 1, 1),
             ))
 
         db.session.commit()

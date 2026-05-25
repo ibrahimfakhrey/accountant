@@ -6,4 +6,5 @@ instance/*.db
 venv/
 .DS_Store
 *.log
-migrations/versions/
+# migration files SHOULD be committed — only ignore alembic's local cache
+*.pyc.bak

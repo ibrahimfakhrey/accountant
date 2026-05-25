@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block page_title %}الرواتب{% endblock %}
+{% block page_title %}الرواتب والموظفون{% endblock %}
 {% block content %}
 <div class="grid grid-cols-3 gap-4">
   <div class="card p-6 col-span-2">
@@ -7,41 +7,62 @@
       <h2 class="font-bold text-navy-900">الموظفون</h2>
       <a href="{{ url_for('payroll.new_employee') }}" class="btn-primary text-sm">+ موظف</a>
     </div>
+
+    <form method="GET" class="flex items-end gap-3 mb-4">
+      <div class="flex-1">
+        <label class="block text-xs font-semibold text-slate-700 mb-1">بحث</label>
+        <input type="text" name="search" value="{{ search }}" placeholder="الاسم أو الوظيفة" class="input text-sm">
+      </div>
+      <div>
+        <label class="block text-xs font-semibold text-slate-700 mb-1">الحالة</label>
+        <select name="status" class="select text-sm">
+          <option value="ACTIVE" {% if status_filter == 'ACTIVE' %}selected{% endif %}>نشط</option>
+          <option value="SUSPENDED" {% if status_filter == 'SUSPENDED' %}selected{% endif %}>موقوف</option>
+          <option value="TERMINATED" {% if status_filter == 'TERMINATED' %}selected{% endif %}>منتهي العقد</option>
+          <option value="ALL" {% if status_filter == 'ALL' %}selected{% endif %}>الكل</option>
+        </select>
+      </div>
+      <button type="submit" class="btn-primary text-sm">تطبيق</button>
+    </form>
+
     <table class="data-table">
-      <thead><tr><th>الاسم</th><th>الوظيفة</th><th class="text-left">الراتب</th><th class="text-left">البدلات</th><th class="text-left">الصافي</th></tr></thead>
+      <thead><tr><th>الرقم</th><th>الاسم</th><th>الوظيفة</th><th>العقد</th><th class="text-left">الراتب الصافي</th><th>آخر كشف</th><th>الحالة</th></tr></thead>
       <tbody>
         {% for e in employees %}
+        {% set last = e.last_payslip %}
         <tr>
-          <td class="font-semibold">{{ e.name }}</td>
+          <td class="font-mono text-xs text-slate-500"><a href="{{ url_for('payroll.employee_profile', employee_id=e.id) }}" class="text-brand-600 hover:underline">{{ e.employee_number or '—' }}</a></td>
+          <td><a href="{{ url_for('payroll.employee_profile', employee_id=e.id) }}" class="font-semibold hover:text-brand-600">{{ e.name }}</a></td>
           <td class="text-sm text-slate-500">{{ e.job_title or '—' }}</td>
-          <td class="text-left font-mono">{{ "%.2f"|format(e.basic_salary) }}</td>
-          <td class="text-left font-mono">{{ "%.2f"|format(e.allowances) }}</td>
-          <td class="text-left font-mono font-bold">{{ "%.2f"|format((e.basic_salary or 0) + (e.allowances or 0) - (e.deductions or 0)) }}</td>
+          <td class="text-xs">{{ e.contract_type.value if e.contract_type else '—' }}</td>
+          <td class="text-left font-mono">{% if last %}{{ "%.2f"|format(last.net) }}{% else %}—{% endif %}</td>
+          <td class="text-xs text-slate-500">{% if last %}{{ last.run.period_month }}/{{ last.run.period_year }}{% else %}—{% endif %}</td>
+          <td>
+            {% if e.status.value == 'ACTIVE' %}<span class="badge badge-paid">نشط</span>
+            {% elif e.status.value == 'SUSPENDED' %}<span class="badge badge-partial">موقوف</span>
+            {% else %}<span class="badge badge-cancelled">منتهي</span>{% endif %}
+          </td>
         </tr>
         {% else %}
-        <tr><td colspan="5" class="text-center text-slate-400 py-8">لا يوجد موظفون</td></tr>
+        <tr><td colspan="7" class="text-center text-slate-400 py-8">لا يوجد موظفون مطابقون</td></tr>
         {% endfor %}
       </tbody>
     </table>
   </div>
+
   <div class="card p-6">
-    <h3 class="font-bold text-navy-900 mb-3">تشغيل كشف رواتب</h3>
-    <form method="POST" action="{{ url_for('payroll.run') }}" class="space-y-3">
-      <select name="year" class="select text-sm">
-        {% for y in [2024, 2025, 2026, 2027] %}<option value="{{ y }}">{{ y }}</option>{% endfor %}
-      </select>
-      <select name="month" class="select text-sm">
-        {% for m in range(1, 13) %}<option value="{{ m }}">شهر {{ m }}</option>{% endfor %}
-      </select>
-      <button type="submit" class="btn-accent w-full" onclick="return confirm('تشغيل كشف الرواتب وتسجيل القيد؟')">تشغيل</button>
-    </form>
+    <h3 class="font-bold text-navy-900 mb-3">كشف رواتب جديد</h3>
+    <a href="{{ url_for('payroll.run') }}" class="btn-primary w-full text-center block">تشغيل كشف</a>
     <hr class="my-4 border-slate-100">
     <h4 class="font-semibold text-navy-900 mb-2">آخر الكشوفات</h4>
     <div class="space-y-1 text-sm">
       {% for r in runs %}
       <a href="{{ url_for('payroll.view_run', run_id=r.id) }}" class="flex justify-between py-2 px-2 hover:bg-slate-50 rounded">
-        <span>{{ r.period_month }}/{{ r.period_year }}</span>
-        <span class="font-mono font-semibold">{{ "%.2f"|format(r.total_net) }}</span>
+        <div>
+          <div class="font-mono text-xs text-slate-500">{{ r.number or '—' }}</div>
+          <div>{{ r.period_month }}/{{ r.period_year }}</div>
+        </div>
+        <span class="font-mono font-semibold self-center">{{ "%.2f"|format(r.total_net) }}</span>
       </a>
       {% else %}
       <div class="text-slate-400 text-center py-3">لا توجد كشوفات</div>

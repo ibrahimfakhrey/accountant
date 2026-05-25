@@ -1,0 +1,26 @@
+{% extends "emails/_base.html" %}
+{% block title %}تذكير: فاتورة {{ invoice.number }}{% endblock %}
+{% block content %}
+{% set color = '#B91C1C' if days_label == 'overdue' else ('#B45309' if days_label == 'before_3' else '#2563EB') %}
+{% set bg = '#FEF2F2' if days_label == 'overdue' else ('#FFFBEB' if days_label == 'before_3' else '#EFF6FF') %}
+
+<h2 style="color:#0A2540;margin:0 0 16px">مرحباً {{ invoice.customer.name }}</h2>
+
+<div style="background:{{ bg }};border-right:4px solid {{ color }};padding:16px 20px;border-radius:8px;margin-bottom:24px">
+  {% if days_label == 'overdue' %}
+    <p style="margin:0;color:{{ color }};font-weight:bold">⚠ فاتورتك تجاوزت تاريخ الاستحقاق</p>
+  {% elif days_label == 'before_3' %}
+    <p style="margin:0;color:{{ color }};font-weight:bold">⏰ فاتورتك تستحق خلال 3 أيام</p>
+  {% else %}
+    <p style="margin:0;color:{{ color }};font-weight:bold">📅 فاتورتك تستحق خلال 7 أيام</p>
+  {% endif %}
+</div>
+
+<table style="width:100%;border-collapse:collapse;margin:24px 0;background:#F8FAFC;border-radius:12px;overflow:hidden">
+  <tr><td style="padding:12px 16px;color:#64748B">رقم الفاتورة</td><td style="padding:12px 16px;text-align:left;font-family:monospace;font-weight:bold">{{ invoice.number }}</td></tr>
+  <tr><td style="padding:12px 16px;color:#64748B">تاريخ الاستحقاق</td><td style="padding:12px 16px;text-align:left;color:{{ color }};font-weight:bold">{{ invoice.due_date.isoformat() }}</td></tr>
+  <tr><td style="padding:12px 16px;color:#64748B">المبلغ المتبقي</td><td style="padding:12px 16px;text-align:left;font-size:18px;font-weight:bold;font-family:monospace">{{ "%.2f"|format(invoice.balance) }} {{ invoice.currency }}</td></tr>
+</table>
+
+<p style="color:#475569;font-size:14px">إذا قمت بالسداد بالفعل، تجاهل هذا التذكير. شكراً.</p>
+{% endblock %}

@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>{% block title %}LedgerOS — نظام المحاسبة الذكي{% endblock %}</title>
+<title>{% block title %}مرصود — نظام المحاسبة الذكي{% endblock %}</title>
 <script src="https://cdn.tailwindcss.com"></script>
 <script src="https://unpkg.com/htmx.org@1.9.12"></script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
@@ -125,9 +125,10 @@ tailwind.config = {
   <aside class="w-64 bg-navy-900 text-navy-100 flex flex-col fixed h-screen right-0 top-0 shadow-2xl">
     <div class="px-6 py-5 border-b border-white/10">
       <div class="flex items-center gap-2">
-        <div class="w-9 h-9 rounded-xl bg-gradient-to-br from-brand-500 to-brand-700 flex items-center justify-center font-bold text-white">L</div>
+        <div class="w-9 h-9 rounded-xl bg-gradient-to-br from-brand-500 to-brand-700 flex items-center justify-center font-bold text-white">م</div>
         <div>
-          <div class="text-white font-bold text-lg leading-none">LedgerOS</div>
+          <div class="text-white font-bold text-lg leading-none">مرصود</div>
+          <div class="sr-only">Marsoud</div>
           <div class="text-xs text-navy-200 mt-1">نظام المحاسبة الذكي</div>
         </div>
       </div>
@@ -153,8 +154,11 @@ tailwind.config = {
         ('accounts.index', 'شجرة الحسابات', '🌳'),
         ('journals.index', 'القيود اليومية', '📒'),
         ('invoices.index', 'الفواتير', '🧾'),
+        ('products.index', 'المنتجات والخدمات', '📦'),
+        ('payment_methods.index', 'طرق الدفع', '💳'),
         ('customers.index', 'العملاء', '👥'),
         ('vendors.index', 'الموردون', '🏢'),
+        ('vendor_bills.index', 'فواتير الموردين', '📥'),
         ('assets.index', 'الأصول الثابتة', '🏗️'),
         ('payroll.index', 'الرواتب', '💼'),
         ('reports.index', 'التقارير المالية', '📑'),
