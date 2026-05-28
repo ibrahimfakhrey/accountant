@@ -3,6 +3,7 @@ from flask_login import login_required, current_user
 from app import db
 from app.models import AgentMessage
 from app.agent.accountant import run_agent
+from app.services.permissions import require_permission
 
 bp = Blueprint("agent", __name__)
 
@@ -18,6 +19,7 @@ def index():
 
 @bp.route("/chat", methods=["POST"])
 @login_required
+@require_permission("agent.use")
 def chat():
     user_msg = (request.json or {}).get("message", "").strip()
     if not user_msg:
@@ -62,6 +64,7 @@ def chat():
 
 @bp.route("/clear", methods=["POST"])
 @login_required
+@require_permission("agent.use")
 def clear():
     AgentMessage.query.filter_by(
         company_id=g.active_company.id, user_id=current_user.id

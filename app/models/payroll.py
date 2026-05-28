@@ -103,5 +103,35 @@ class PayrollLine(db.Model):
     advance_deduction = db.Column(db.Numeric(15, 2), default=0)
 
     net = db.Column(db.Numeric(15, 2), default=0)
+    amount_paid = db.Column(db.Numeric(15, 2), default=0)  # what was actually paid; (net - amount_paid) → accrual
 
     employee = db.relationship("Employee", backref="payroll_lines")
+
+
+class EmployeeAccrual(db.Model):
+    """Per-employee unpaid salary balance.
+
+    Created when a payroll line's amount_paid < net. Tracks who is owed what so
+    the company can settle later. The aggregate balance ties to a portion of
+    2130 (Salaries Payable) in the GL.
+    """
+    __tablename__ = "employee_accruals"
+    id = db.Column(db.Integer, primary_key=True)
+    company_id = db.Column(db.Integer, db.ForeignKey("companies.id"), nullable=False, index=True)
+    employee_id = db.Column(db.Integer, db.ForeignKey("employees.id"), nullable=False, index=True)
+    source_run_id = db.Column(db.Integer, db.ForeignKey("payroll_runs.id"))
+    source_line_id = db.Column(db.Integer, db.ForeignKey("payroll_lines.id"))
+    amount = db.Column(db.Numeric(15, 2), nullable=False)
+    settled_at = db.Column(db.DateTime)
+    settlement_journal_entry_id = db.Column(db.Integer, db.ForeignKey("journal_entries.id"))
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    employee = db.relationship("Employee", backref=db.backref("accruals", lazy="dynamic"))
+    company = db.relationship("Company")
+    source_run = db.relationship("PayrollRun")
+    source_line = db.relationship("PayrollLine", backref=db.backref("accrual", uselist=False))
+    settlement_entry = db.relationship("JournalEntry")
+
+    @property
+    def is_settled(self):
+        return self.settled_at is not None

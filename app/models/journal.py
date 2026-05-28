@@ -17,6 +17,7 @@ class JournalEntry(db.Model):
     created_by = db.Column(db.Integer, db.ForeignKey("users.id"))
     source_type = db.Column(db.String(30))
     source_id = db.Column(db.Integer)
+    cashflow_category = db.Column(db.String(15))  # OPERATING / INVESTING / FINANCING / NONCASH (manual override)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
     # Pause/reactivate — paused entries are excluded from reports

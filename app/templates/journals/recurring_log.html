@@ -1,0 +1,55 @@
+{% extends "base.html" %}
+{% block page_title %}سجل: {{ schedule.name }}{% endblock %}
+{% block content %}
+<div class="card p-6">
+  <div class="flex items-center justify-between mb-5">
+    <div>
+      <h2 class="font-bold text-navy-900">{{ schedule.name }}</h2>
+      <p class="text-sm text-slate-500 mt-1">سجل تنفيذ الجدول التلقائي</p>
+    </div>
+    <a href="{{ url_for('journals.recurring_list') }}" class="btn-secondary text-sm">→ رجوع</a>
+  </div>
+
+  <div class="grid grid-cols-4 gap-3 mb-5 text-sm">
+    <div class="bg-slate-50 p-3 rounded-lg"><div class="text-slate-500 text-xs mb-1">التكرار</div><div class="font-bold">{{ schedule.frequency.value }}</div></div>
+    <div class="bg-slate-50 p-3 rounded-lg"><div class="text-slate-500 text-xs mb-1">التشغيل القادم</div><div class="font-bold">{{ schedule.next_run_date.isoformat() }}</div></div>
+    <div class="bg-slate-50 p-3 rounded-lg"><div class="text-slate-500 text-xs mb-1">تاريخ الانتهاء</div><div class="font-bold">{{ schedule.end_date.isoformat() if schedule.end_date else '—' }}</div></div>
+    <div class="bg-slate-50 p-3 rounded-lg"><div class="text-slate-500 text-xs mb-1">الحالة</div><div class="font-bold">{% if schedule.is_active %}نشط{% else %}موقوف{% endif %}</div></div>
+  </div>
+
+  <table class="data-table">
+    <thead>
+      <tr><th>التاريخ والوقت</th><th>الإجراء</th><th>الفترة</th><th>التفاصيل</th><th>المستخدم</th></tr>
+    </thead>
+    <tbody>
+    {% for log in logs %}
+      <tr>
+        <td class="text-xs">{{ log.created_at.strftime('%Y-%m-%d %H:%M:%S') }}</td>
+        <td>
+          {% set action_color = {
+            'EXECUTE': 'badge-paid',
+            'FAIL': 'badge-overdue',
+            'EDIT': 'badge-draft',
+            'STOP': 'badge-cancelled',
+            'RESUME': 'badge-sent',
+            'DELETE': 'badge-overdue'
+          } %}
+          <span class="badge {{ action_color.get(log.action.value, 'badge-draft') }}">{{ log.action.value }}</span>
+        </td>
+        <td class="text-xs font-mono">{{ log.period_posted.isoformat() if log.period_posted else '—' }}</td>
+        <td class="text-xs">
+          {% if log.journal_entry %}
+            <a href="{{ url_for('journals.view', entry_id=log.journal_entry.id) }}" class="text-brand-600 hover:underline">{{ log.journal_entry.number }}</a>
+          {% endif %}
+          {% if log.error_message %}<span class="text-red-600">{{ log.error_message }}</span>{% endif %}
+          {% if log.reason %}<span class="text-slate-600">{{ log.reason }}</span>{% endif %}
+        </td>
+        <td class="text-xs">{{ log.user.full_name if log.user else '—' }}</td>
+      </tr>
+    {% else %}
+      <tr><td colspan="5" class="text-center text-slate-400 py-8">لا توجد إدخالات في السجل بعد</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

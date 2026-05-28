@@ -12,6 +12,7 @@ from app.services.vendor_bills import (
 )
 from app.services.ledger import LedgerError
 from app.services.numbering import next_number
+from app.services.permissions import require_permission
 
 bp = Blueprint("vendor_bills", __name__)
 
@@ -115,6 +116,7 @@ def _populate_from_form(bill, form):
 
 @bp.route("/new", methods=["GET", "POST"])
 @login_required
+@require_permission("vendor_bills.create")
 def new():
     if not g.active_company:
         return redirect(url_for("companies.new"))
@@ -165,6 +167,7 @@ def view(bill_id):
 
 @bp.route("/<int:bill_id>/post", methods=["POST"])
 @login_required
+@require_permission("vendor_bills.create")
 def post(bill_id):
     bill = db.session.get(VendorBill, bill_id)
     if not bill or bill.company_id != g.active_company.id:
@@ -179,6 +182,7 @@ def post(bill_id):
 
 @bp.route("/<int:bill_id>/pay", methods=["POST"])
 @login_required
+@require_permission("vendor_bills.create")
 def pay(bill_id):
     bill = db.session.get(VendorBill, bill_id)
     if not bill or bill.company_id != g.active_company.id:

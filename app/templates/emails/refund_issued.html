@@ -1,0 +1,22 @@
+{% extends "emails/_base.html" %}
+{% block title %}تأكيد استرداد — فاتورة {{ invoice.number }}{% endblock %}
+{% block content %}
+<h2 style="color:#0A2540;margin:0 0 16px">عزيزي {{ invoice.customer.name }}</h2>
+<p style="line-height:1.7;color:#475569">
+  نود إعلامك بأنه تم تسجيل استرداد على الفاتورة التالية:
+</p>
+
+<table style="width:100%;border-collapse:collapse;margin:24px 0;background:#F8FAFC;border-radius:12px;overflow:hidden">
+  <tr><td style="padding:12px 16px;color:#64748B">رقم الفاتورة</td><td style="padding:12px 16px;text-align:left;font-family:monospace;font-weight:bold">{{ invoice.number }}</td></tr>
+  <tr><td style="padding:12px 16px;color:#64748B">نوع الاسترداد</td><td style="padding:12px 16px;text-align:left">{% if refund.type.value == 'FULL' %}كامل{% elif refund.type.value == 'PARTIAL' %}جزئي{% else %}إشعار دائن{% endif %}</td></tr>
+  <tr><td style="padding:12px 16px;color:#64748B">قيمة الاسترداد</td><td style="padding:12px 16px;text-align:left;color:#B45309;font-weight:bold;font-family:monospace">{{ "%.2f"|format(refund.amount) }} {{ invoice.currency }}</td></tr>
+  {% if refund.reason %}
+  <tr><td style="padding:12px 16px;color:#64748B">السبب</td><td style="padding:12px 16px;text-align:left">{{ refund.reason }}</td></tr>
+  {% endif %}
+  <tr><td style="padding:12px 16px;color:#64748B">التاريخ</td><td style="padding:12px 16px;text-align:left">{{ refund.created_at.strftime('%Y-%m-%d') }}</td></tr>
+</table>
+
+<p style="line-height:1.7;color:#475569;font-size:13px">
+  إذا كان لديك أي استفسار بخصوص هذا الاسترداد، يرجى التواصل معنا.
+</p>
+{% endblock %}

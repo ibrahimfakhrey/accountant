@@ -1,25 +1,74 @@
 """Payroll processing — generates monthly run + journal entry.
 
-Variable inputs (working days, overtime, absence/late/advance, bonus) are passed
-per-employee. They are stored on the PayrollLine and reset implicitly each month
-because each run gets a fresh set of lines.
+Variable inputs (working days, overtime, absence/late/advance, bonus, amount_paid)
+are passed per-employee. They are stored on the PayrollLine and reset implicitly
+each month because each run gets a fresh set of lines.
 
-Prorated salary uses a 30-day basis (Gulf standard): basic/30 × working_days.
-SUSPENDED and TERMINATED employees are excluded.
+Prorated salary uses a 30-day basis (Gulf standard): basic/30 × billable_days.
+billable_days defaults to 30 but auto-adjusts when an employee was hired or
+terminated mid-period.
+
+SUSPENDED and TERMINATED employees are excluded (unless terminated mid-period —
+they still receive their partial-month pay).
 """
-from datetime import date
+from calendar import monthrange
+from datetime import date, datetime
 from app import db
-from app.models import Employee, EmployeeStatus, PayrollRun, PayrollLine
+from app.models import (
+    Employee, EmployeeStatus, PayrollRun, PayrollLine, EmployeeAccrual,
+)
 from app.services.ledger import post_journal, get_account_by_code, LedgerError
 from app.services.numbering import next_number
+
+
+def billable_days_in_period(employee, year, month, override=None):
+    """Default billable days for an employee within (year, month).
+
+    Returns the number of days the employee should be paid for, respecting:
+      - start_date — if hired mid-month, only count from start_date onwards
+      - termination_date — if terminated mid-month, only count up to that date
+
+    Caller-supplied `override` (working_days from form) wins when set, BUT we
+    still cap it at the natural billable maximum so the user can't accidentally
+    over-pay (e.g., enter 30 for someone hired on the 27th).
+    """
+    days_in_month = monthrange(year, month)[1]
+    period_start = date(year, month, 1)
+    period_end = date(year, month, days_in_month)
+
+    eff_start = period_start
+    eff_end = period_end
+
+    if employee.start_date and employee.start_date > period_start:
+        if employee.start_date > period_end:
+            return 0   # not hired yet during this period
+        eff_start = employee.start_date
+
+    if employee.termination_date and employee.termination_date < period_end:
+        if employee.termination_date < period_start:
+            return 0   # already terminated before period
+        eff_end = employee.termination_date
+
+    natural_billable = (eff_end - eff_start).days + 1
+    natural_billable = max(0, min(natural_billable, days_in_month))
+
+    if override is not None:
+        try:
+            ov = int(override)
+            return max(0, min(ov, natural_billable))
+        except (TypeError, ValueError):
+            return natural_billable
+
+    return natural_billable
 
 
 def run_payroll(company_id, year, month, line_inputs=None, created_by=None, send_emails=True):
     """Execute a payroll run.
 
     line_inputs: optional dict keyed by employee_id with overrides:
-        {emp_id: {working_days, overtime, bonus, absence, late, advance}}
-        Missing employees use defaults (30 days, no variable amounts).
+        {emp_id: {working_days, overtime, bonus, absence, late, advance, amount_paid}}
+        Missing employees use defaults (auto billable_days, no variable amounts,
+        amount_paid = net).
     """
     existing = PayrollRun.query.filter_by(
         company_id=company_id, period_year=year, period_month=month
@@ -27,7 +76,19 @@ def run_payroll(company_id, year, month, line_inputs=None, created_by=None, send
     if existing:
         raise LedgerError(f"كشف رواتب {month}/{year} موجود بالفعل")
 
-    employees = Employee.query.filter_by(company_id=company_id, status=EmployeeStatus.ACTIVE).all()
+    # Include any employee who was active at any point during the period (so
+    # someone terminated mid-month still gets their partial pay).
+    period_end = date(year, month, monthrange(year, month)[1])
+    employees = Employee.query.filter(
+        Employee.company_id == company_id,
+        db.or_(
+            Employee.status == EmployeeStatus.ACTIVE,
+            db.and_(
+                Employee.status == EmployeeStatus.TERMINATED,
+                Employee.termination_date >= date(year, month, 1),
+            ),
+        ),
+    ).all()
     if not employees:
         raise LedgerError("لا يوجد موظفين نشطين")
 
@@ -43,10 +104,17 @@ def run_payroll(company_id, year, month, line_inputs=None, created_by=None, send
     line_inputs = line_inputs or {}
     total_gross = 0.0
     total_net = 0.0
+    total_paid_cash = 0.0
+    total_accrued = 0.0
     lines_created = []
+    accruals_to_create = []
+
     for emp in employees:
         inputs = line_inputs.get(emp.id, {})
-        working_days = int(inputs.get("working_days", 30))
+
+        working_days = billable_days_in_period(
+            emp, year, month, override=inputs.get("working_days"),
+        )
         overtime = float(inputs.get("overtime", 0) or 0)
         bonus = float(inputs.get("bonus", 0) or 0)
         absence = float(inputs.get("absence", 0) or 0)
@@ -54,13 +122,21 @@ def run_payroll(company_id, year, month, line_inputs=None, created_by=None, send
         advance = float(inputs.get("advance", 0) or 0)
 
         basic_full = float(emp.basic_salary or 0)
-        prorated_basic = (basic_full / 30.0) * max(0, min(working_days, 30))
+        prorated_basic = (basic_full / 30.0) * max(0, working_days)
         allowances = float(emp.allowances or 0)
         fixed_deductions = float(emp.deductions or 0)
 
         gross = prorated_basic + allowances + overtime + bonus
         total_deductions = fixed_deductions + absence + late + advance
-        net = gross - total_deductions
+        net = round(gross - total_deductions, 2)
+
+        # amount_paid defaults to net (= full payment) when not set
+        if "amount_paid" in inputs and inputs["amount_paid"] not in (None, ""):
+            amount_paid = round(float(inputs["amount_paid"]), 2)
+            amount_paid = max(0.0, min(amount_paid, net))
+        else:
+            amount_paid = net
+        accrued = round(net - amount_paid, 2)
 
         line = PayrollLine(
             run_id=run.id,
@@ -74,25 +150,48 @@ def run_payroll(company_id, year, month, line_inputs=None, created_by=None, send
             absence_deduction=absence,
             late_deduction=late,
             advance_deduction=advance,
-            net=round(net, 2),
+            net=net,
+            amount_paid=amount_paid,
         )
         db.session.add(line)
+        db.session.flush()
         lines_created.append((emp, line))
+
+        if accrued > 0.005:
+            accruals_to_create.append((emp, line, accrued))
+
         total_gross += gross
         total_net += net
+        total_paid_cash += amount_paid
+        total_accrued += accrued
 
     salary_expense = get_account_by_code(company_id, "5210")
     salary_payable = get_account_by_code(company_id, "2130")
-    if not salary_expense or not salary_payable:
-        raise LedgerError("حسابات الرواتب غير موجودة في شجرة الحسابات")
+    cash_acc = get_account_by_code(company_id, "1110")
+    if not salary_expense or not salary_payable or not cash_acc:
+        raise LedgerError("حسابات الرواتب أو النقدية غير موجودة")
+
+    journal_lines = [
+        {"account_id": salary_expense.id, "debit": round(total_net, 2), "credit": 0,
+         "memo": f"مصروف رواتب {month}/{year}"},
+    ]
+    if total_paid_cash > 0.005:
+        journal_lines.append({
+            "account_id": cash_acc.id, "debit": 0,
+            "credit": round(total_paid_cash, 2),
+            "memo": "صرف نقدي للموظفين",
+        })
+    if total_accrued > 0.005:
+        journal_lines.append({
+            "account_id": salary_payable.id, "debit": 0,
+            "credit": round(total_accrued, 2),
+            "memo": "رواتب مستحقة (لم تُصرف بعد)",
+        })
 
     entry = post_journal(
         company_id=company_id,
         description=f"رواتب شهر {month}/{year}",
-        lines=[
-            {"account_id": salary_expense.id, "debit": round(total_net, 2), "credit": 0},
-            {"account_id": salary_payable.id, "debit": 0, "credit": round(total_net, 2)},
-        ],
+        lines=journal_lines,
         reference=f"PAYROLL-{year}-{month:02d}",
         created_by=created_by,
         source_type="payroll",
@@ -101,6 +200,17 @@ def run_payroll(company_id, year, month, line_inputs=None, created_by=None, send
     run.total_gross = round(total_gross, 2)
     run.total_net = round(total_net, 2)
     run.journal_entry_id = entry.id
+
+    # Persist per-employee accruals
+    for emp, line, amount in accruals_to_create:
+        db.session.add(EmployeeAccrual(
+            company_id=company_id,
+            employee_id=emp.id,
+            source_run_id=run.id,
+            source_line_id=line.id,
+            amount=amount,
+        ))
+
     db.session.commit()
 
     # Email payslips — non-blocking
@@ -128,5 +238,85 @@ def terminate_employee(employee, reason, termination_date=None, notes=None):
     employee.termination_date = termination_date or date.today()
     employee.termination_reason = reason
     employee.termination_notes = notes
+    db.session.commit()
+    return employee
+
+
+def settle_accrual(accrual, payment_method_account_code="1110", created_by=None):
+    """Pay out an outstanding accrual to the employee.
+
+    Posts: Dr 2130 (Salaries Payable) / Cr cash (1110) or bank (1120).
+    Marks the accrual as settled and links the settlement journal entry.
+    """
+    if accrual.is_settled:
+        raise LedgerError("هذا المبلغ تم سداده مسبقاً")
+    company_id = accrual.company_id
+    salary_payable = get_account_by_code(company_id, "2130")
+    cash_acc = get_account_by_code(company_id, payment_method_account_code)
+    if not salary_payable or not cash_acc:
+        raise LedgerError("حسابات السداد غير موجودة")
+
+    amount = float(accrual.amount)
+    entry = post_journal(
+        company_id=company_id,
+        description=f"سداد راتب مستحق — {accrual.employee.name}",
+        lines=[
+            {"account_id": salary_payable.id, "debit": amount, "credit": 0,
+             "memo": f"تسوية مستحق راتب — {accrual.employee.name}"},
+            {"account_id": cash_acc.id, "debit": 0, "credit": amount,
+             "memo": f"صرف نقدي للموظف — {accrual.employee.name}"},
+        ],
+        reference=f"ACCR-{accrual.id}",
+        created_by=created_by,
+        source_type="accrual_settle",
+        source_id=accrual.id,
+    )
+    accrual.settled_at = datetime.utcnow()
+    accrual.settlement_journal_entry_id = entry.id
+    db.session.commit()
+    return accrual
+
+
+def update_employee(employee, form):
+    """Update an existing employee. Locks fields that would invalidate
+    historical proration if changed retroactively."""
+    has_history = employee.payroll_lines and len(list(employee.payroll_lines)) > 0
+    employee.name = (form.get("name") or employee.name).strip()
+    employee.email = (form.get("email") or "").strip()
+    employee.phone = (form.get("phone") or "").strip()
+    employee.job_title = (form.get("job_title") or "").strip()
+
+    # Locked fields when payroll history exists
+    if not has_history:
+        if form.get("employee_number"):
+            employee.employee_number = form.get("employee_number").strip()
+        if form.get("start_date"):
+            employee.start_date = datetime.strptime(form.get("start_date"), "%Y-%m-%d").date()
+
+    ct_str = form.get("contract_type")
+    if ct_str:
+        from app.models import ContractType
+        try:
+            employee.contract_type = ContractType[ct_str]
+        except KeyError:
+            pass
+
+    status_str = form.get("status")
+    if status_str:
+        try:
+            new_status = EmployeeStatus[status_str]
+            employee.status = new_status
+            employee.is_active = (new_status == EmployeeStatus.ACTIVE)
+        except KeyError:
+            pass
+
+    for fld in ("basic_salary", "allowances", "deductions"):
+        v = form.get(fld)
+        if v is not None and v != "":
+            try:
+                setattr(employee, fld, float(v))
+            except ValueError:
+                pass
+
     db.session.commit()
     return employee

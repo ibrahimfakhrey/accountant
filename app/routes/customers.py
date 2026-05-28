@@ -3,6 +3,7 @@ from flask_login import login_required
 from app import db
 from app.models import Customer
 from app.services.reports import aging_report
+from app.services.permissions import require_permission
 
 bp = Blueprint("customers", __name__)
 
@@ -18,6 +19,7 @@ def index():
 
 @bp.route("/new", methods=["GET", "POST"])
 @login_required
+@require_permission("partners.manage")
 def new():
     if request.method == "POST":
         c = Customer(

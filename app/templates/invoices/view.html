@@ -94,12 +94,19 @@
     {% if invoice.balance > 0.01 and invoice.status.value in ['SENT', 'PARTIALLY_PAID', 'OVERDUE'] %}
     <div class="card p-5">
       <h3 class="font-bold text-navy-900 mb-3">تسجيل دفعة</h3>
+      {% set active_methods = active_company.payment_methods|selectattr('is_active')|list %}
+      {% if not active_methods %}
+        <div class="bg-amber-50 border border-amber-200 text-amber-900 text-sm rounded-lg p-3 mb-3">
+          أضف طريقة دفع أولاً من
+          <a href="{{ url_for('payment_methods.index') }}" class="underline font-bold">الإعدادات</a>
+        </div>
+      {% else %}
       <form method="POST" action="{{ url_for('invoices.pay', invoice_id=invoice.id) }}" class="space-y-3">
         <input type="number" name="amount" step="0.01" max="{{ invoice.balance }}" placeholder="المبلغ" required class="input text-sm">
         <select name="payment_method_id" required class="select text-sm">
-          {% for pm in active_company.payment_methods %}{% if pm.is_active %}
+          {% for pm in active_methods %}
           <option value="{{ pm.id }}" {% if pm.is_default %}selected{% endif %}>{{ pm.name_ar or pm.name }}</option>
-          {% endif %}{% endfor %}
+          {% endfor %}
         </select>
         <label class="flex items-center gap-2 text-xs cursor-pointer">
           <input type="checkbox" name="notify_customer" value="1" checked class="w-4 h-4 rounded text-brand-600">
@@ -107,6 +114,7 @@
         </label>
         <button type="submit" class="btn-accent w-full">تسجيل الدفعة</button>
       </form>
+      {% endif %}
     </div>
     {% endif %}
 
@@ -121,6 +129,11 @@
         </select>
         <input type="number" name="amount" step="0.01" placeholder="المبلغ (للجزئي/Credit Note)" class="input text-sm">
         <input type="text" name="reason" placeholder="السبب" class="input text-sm">
+        <label class="flex items-center gap-2 text-sm text-slate-600">
+          <input type="checkbox" name="email_customer" value="1" {% if invoice.customer.email %}checked{% else %}disabled{% endif %}>
+          إرسال إيميل تأكيد للعميل
+          {% if not invoice.customer.email %}<span class="text-xs text-slate-400">(لا يوجد إيميل مسجل)</span>{% endif %}
+        </label>
         <button type="submit" class="btn-danger w-full" onclick="return confirm('تأكيد الاسترداد؟')">تسجيل</button>
       </form>
     </div>

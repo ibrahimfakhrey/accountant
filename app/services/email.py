@@ -109,17 +109,50 @@ def send_payment_received_email(invoice, payment, is_full):
 
 
 def send_overdue_reminder(invoice, days_label):
-    """days_label: 'before_7', 'before_3', or 'overdue'"""
+    """days_label: 'before_<N>', 'overdue', or 'overdue_<N>'"""
     if not invoice.customer.email:
         return False
-    if days_label == "before_7":
-        subject = f"تذكير: فاتورة #{invoice.number} تستحق خلال 7 أيام"
-    elif days_label == "before_3":
-        subject = f"تذكير: فاتورة #{invoice.number} تستحق خلال 3 أيام"
+    if days_label.startswith("before_"):
+        n = days_label.split("_", 1)[1]
+        subject = f"تذكير: فاتورة #{invoice.number} تستحق خلال {n} أيام"
+    elif days_label.startswith("overdue_"):
+        n = days_label.split("_", 1)[1]
+        subject = f"فاتورة #{invoice.number} متأخرة منذ {n} يوم"
     else:
         subject = f"فاتورة #{invoice.number} تجاوزت تاريخ الاستحقاق"
     html = render_template("emails/invoice_reminder.html", invoice=invoice, days_label=days_label)
     return send_email(invoice.customer.email, subject, html)
+
+
+def send_refund_email(invoice, refund):
+    """Notify customer that a refund was issued for an invoice."""
+    if not invoice.customer.email:
+        return False
+    subject = f"تأكيد استرداد — فاتورة #{invoice.number}"
+    html = render_template("emails/refund_issued.html", invoice=invoice, refund=refund)
+    return send_email(invoice.customer.email, subject, html)
+
+
+def send_credit_note_email(invoice, credit_note):
+    """Notify customer that a credit note was issued for an invoice."""
+    if not invoice.customer.email:
+        return False
+    subject = f"إشعار دائن (Credit Note) — فاتورة #{invoice.number}"
+    html = render_template("emails/credit_note_issued.html", invoice=invoice, credit_note=credit_note)
+    return send_email(invoice.customer.email, subject, html)
+
+
+def send_invitation_email(invitation, accept_url):
+    """Notify an invited user that they have access to a company."""
+    role_label = {"owner": "مالك", "admin": "مدير", "accountant": "محاسب", "viewer": "مشاهد"}.get(
+        invitation.role, invitation.role
+    )
+    subject = f"دعوة للانضمام إلى {invitation.company.name} على مرصود"
+    html = render_template(
+        "emails/invitation.html",
+        invitation=invitation, accept_url=accept_url, role_label=role_label,
+    )
+    return send_email(invitation.email, subject, html)
 
 
 def send_payslip_email(employee, payroll_line, payroll_run, pdf_bytes=None):

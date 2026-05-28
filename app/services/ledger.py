@@ -20,6 +20,7 @@ def post_journal(
     created_by=None,
     source_type=None,
     source_id=None,
+    cashflow_category=None,
 ):
     """Post a balanced journal entry.
 
@@ -53,6 +54,7 @@ def post_journal(
         created_by=created_by,
         source_type=source_type,
         source_id=source_id,
+        cashflow_category=cashflow_category,
     )
     db.session.add(entry)
     db.session.flush()

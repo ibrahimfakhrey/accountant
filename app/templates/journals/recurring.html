@@ -5,12 +5,12 @@
   <div class="flex items-center justify-between mb-5">
     <div>
       <h2 class="font-bold text-navy-900">القيود المتكررة</h2>
-      <p class="text-sm text-slate-500 mt-1">جداول تعمل تلقائياً عند هبوط cron tick</p>
+      <p class="text-sm text-slate-500 mt-1">جداول تعمل تلقائياً عند هبوط cron tick — تستدرك جميع الفترات المفقودة دفعة واحدة</p>
     </div>
     <a href="{{ url_for('journals.recurring_new') }}" class="btn-primary">+ جدول تلقائي</a>
   </div>
   <table class="data-table">
-    <thead><tr><th>الاسم</th><th>القالب</th><th>التكرار</th><th>التشغيل القادم</th><th>الحالة</th></tr></thead>
+    <thead><tr><th>الاسم</th><th>القالب</th><th>التكرار</th><th>التشغيل القادم</th><th>الحالة</th><th>الإجراءات</th></tr></thead>
     <tbody>
     {% for r in items %}
       <tr>
@@ -19,9 +19,46 @@
         <td>{{ r.frequency.value }}</td>
         <td>{{ r.next_run_date.isoformat() }}</td>
         <td>{% if r.is_active %}<span class="badge badge-paid">نشط</span>{% else %}<span class="badge badge-cancelled">موقوف</span>{% endif %}</td>
+        <td>
+          <div class="flex items-center gap-2 text-xs">
+            <button type="button" onclick="document.getElementById('edit-{{r.id}}').classList.toggle('hidden')" class="text-brand-600 hover:underline">تعديل</button>
+            <span class="text-slate-300">·</span>
+            {% if r.is_active %}
+              <button type="button" onclick="document.getElementById('stop-{{r.id}}').classList.toggle('hidden')" class="text-amber-700 hover:underline">إيقاف</button>
+            {% else %}
+              <form method="POST" action="{{ url_for('journals.recurring_resume', rec_id=r.id) }}" class="inline">
+                <button type="submit" class="text-green-700 hover:underline">تفعيل</button>
+              </form>
+            {% endif %}
+            <span class="text-slate-300">·</span>
+            <button type="button" onclick="document.getElementById('del-{{r.id}}').classList.toggle('hidden')" class="text-red-600 hover:underline">حذف</button>
+            <span class="text-slate-300">·</span>
+            <a href="{{ url_for('journals.recurring_log', rec_id=r.id) }}" class="text-slate-600 hover:underline">السجل</a>
+          </div>
+          <form id="edit-{{r.id}}" method="POST" action="{{ url_for('journals.recurring_edit', rec_id=r.id) }}" class="hidden mt-3 grid grid-cols-2 gap-2 p-3 bg-slate-50 rounded-lg text-xs">
+            <input type="text" name="name" value="{{r.name}}" placeholder="الاسم" class="input text-xs">
+            <select name="frequency" class="select text-xs">
+              <option value="DAILY" {% if r.frequency.value=='DAILY' %}selected{% endif %}>يومي</option>
+              <option value="WEEKLY" {% if r.frequency.value=='WEEKLY' %}selected{% endif %}>أسبوعي</option>
+              <option value="MONTHLY" {% if r.frequency.value=='MONTHLY' %}selected{% endif %}>شهري</option>
+              <option value="YEARLY" {% if r.frequency.value=='YEARLY' %}selected{% endif %}>سنوي</option>
+            </select>
+            <input type="date" name="next_run_date" value="{{ r.next_run_date.isoformat() }}" class="input text-xs">
+            <input type="date" name="end_date" value="{{ r.end_date.isoformat() if r.end_date else '' }}" placeholder="تاريخ النهاية (اختياري)" class="input text-xs">
+            <button type="submit" class="btn-primary text-xs col-span-2">حفظ التعديلات</button>
+          </form>
+          <form id="stop-{{r.id}}" method="POST" action="{{ url_for('journals.recurring_stop', rec_id=r.id) }}" class="hidden mt-3 flex gap-2 p-3 bg-amber-50 rounded-lg text-xs">
+            <input type="text" name="reason" required placeholder="سبب الإيقاف (مطلوب)" class="input text-xs flex-1">
+            <button type="submit" class="btn-secondary text-xs">إيقاف</button>
+          </form>
+          <form id="del-{{r.id}}" method="POST" action="{{ url_for('journals.recurring_delete', rec_id=r.id) }}" class="hidden mt-3 flex gap-2 p-3 bg-red-50 rounded-lg text-xs" onsubmit="return confirm('تأكيد الحذف؟')">
+            <input type="text" name="reason" placeholder="سبب الحذف (اختياري)" class="input text-xs flex-1">
+            <button type="submit" class="btn-danger text-xs">حذف نهائي</button>
+          </form>
+        </td>
       </tr>
     {% else %}
-      <tr><td colspan="5" class="text-center text-slate-400 py-8">لا توجد قيود متكررة</td></tr>
+      <tr><td colspan="6" class="text-center text-slate-400 py-8">لا توجد قيود متكررة</td></tr>
     {% endfor %}
     </tbody>
   </table>

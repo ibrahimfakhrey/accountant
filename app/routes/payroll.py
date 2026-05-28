@@ -4,11 +4,15 @@ from flask_login import login_required, current_user
 from app import db
 from app.models import (
     Employee, EmployeeStatus, ContractType, TerminationReason,
-    PayrollRun, PayrollLine,
+    PayrollRun, PayrollLine, EmployeeAccrual,
 )
-from app.services.payroll import run_payroll, terminate_employee
+from app.services.payroll import (
+    run_payroll, terminate_employee, settle_accrual, update_employee,
+    billable_days_in_period,
+)
 from app.services.ledger import LedgerError
 from app.services.numbering import next_number
+from app.services.permissions import require_permission
 
 bp = Blueprint("payroll", __name__)
 
@@ -45,6 +49,7 @@ def index():
 
 @bp.route("/employees/new", methods=["GET", "POST"])
 @login_required
+@require_permission("payroll.employees")
 def new_employee():
     if request.method == "POST":
         try:
@@ -84,15 +89,68 @@ def employee_profile(employee_id):
     payslips = PayrollLine.query.filter_by(employee_id=emp.id).join(PayrollRun).order_by(
         PayrollRun.period_year.desc(), PayrollRun.period_month.desc()
     ).all()
+    open_accruals = EmployeeAccrual.query.filter_by(
+        employee_id=emp.id, settled_at=None,
+    ).order_by(EmployeeAccrual.created_at).all()
+    settled_accruals = EmployeeAccrual.query.filter(
+        EmployeeAccrual.employee_id == emp.id,
+        EmployeeAccrual.settled_at.isnot(None),
+    ).order_by(EmployeeAccrual.settled_at.desc()).limit(20).all()
+    outstanding = sum(float(a.amount) for a in open_accruals)
     return render_template(
         "payroll/employee_profile.html",
         employee=emp, payslips=payslips,
         termination_reasons=TerminationReason,
+        open_accruals=open_accruals, settled_accruals=settled_accruals,
+        outstanding=outstanding,
     )
+
+
+@bp.route("/employees/<int:employee_id>/edit", methods=["GET", "POST"])
+@login_required
+@require_permission("payroll.employees")
+def edit_employee(employee_id):
+    emp = db.session.get(Employee, employee_id)
+    if not emp or emp.company_id != g.active_company.id:
+        return redirect(url_for("payroll.index"))
+    has_history = bool(list(emp.payroll_lines))
+    if request.method == "POST":
+        try:
+            update_employee(emp, request.form)
+            flash("تم حفظ تعديلات الموظف", "success")
+            return redirect(url_for("payroll.employee_profile", employee_id=emp.id))
+        except (ValueError, KeyError) as e:
+            flash(str(e), "error")
+    return render_template(
+        "payroll/employee_form.html",
+        contract_types=ContractType, statuses=EmployeeStatus,
+        employee=emp, has_history=has_history,
+    )
+
+
+@bp.route("/accruals/<int:accrual_id>/settle", methods=["POST"])
+@login_required
+@require_permission("payroll.employees")
+def settle_accrual_route(accrual_id):
+    a = db.session.get(EmployeeAccrual, accrual_id)
+    if not a or a.company_id != g.active_company.id:
+        flash("غير موجود", "error")
+        return redirect(url_for("payroll.index"))
+    if a.is_settled:
+        flash("تم سداد هذا المبلغ مسبقاً", "warning")
+        return redirect(url_for("payroll.employee_profile", employee_id=a.employee_id))
+    try:
+        pay_via = request.form.get("payment_account_code", "1110")
+        settle_accrual(a, payment_method_account_code=pay_via, created_by=current_user.id)
+        flash(f"تم سداد {float(a.amount):.2f}", "success")
+    except LedgerError as e:
+        flash(str(e), "error")
+    return redirect(url_for("payroll.employee_profile", employee_id=a.employee_id))
 
 
 @bp.route("/employees/<int:employee_id>/terminate", methods=["POST"])
 @login_required
+@require_permission("payroll.employees")
 def terminate(employee_id):
     emp = db.session.get(Employee, employee_id)
     if not emp or emp.company_id != g.active_company.id:
@@ -111,6 +169,7 @@ def terminate(employee_id):
 
 @bp.route("/run", methods=["GET", "POST"])
 @login_required
+@require_permission("payroll.run")
 def run():
     """GET: show form with per-employee variable inputs. POST: execute."""
     if not g.active_company:
@@ -135,6 +194,7 @@ def run():
                 "absence": float(request.form.get(f"absence_{emp.id}", 0) or 0),
                 "late": float(request.form.get(f"late_{emp.id}", 0) or 0),
                 "advance": float(request.form.get(f"advance_{emp.id}", 0) or 0),
+                "amount_paid": request.form.get(f"amount_paid_{emp.id}") or None,
             }
         try:
             pr = run_payroll(
@@ -148,9 +208,14 @@ def run():
             flash(str(e), "error")
 
     today = date.today()
+    # Prefill the form for "this month" (or whatever was in the query string)
+    year = int(request.args.get("year", today.year))
+    month = int(request.args.get("month", today.month))
     return render_template(
         "payroll/run_form.html",
         employees=employees, today=today,
+        year=year, month=month,
+        billable_days=billable_days_in_period,
     )
 
 

@@ -12,6 +12,7 @@ from app.services.ledger import post_journal, reverse_journal, LedgerError
 from app.services.journals import (
     pause_entry, reactivate_entry, post_from_template,
 )
+from app.services.permissions import require_permission
 
 bp = Blueprint("journals", __name__)
 
@@ -191,6 +192,7 @@ def index():
 
 @bp.route("/new", methods=["GET", "POST"])
 @login_required
+@require_permission("journals.create")
 def new():
     if not g.active_company:
         return redirect(url_for("companies.new"))
@@ -224,6 +226,7 @@ def new():
                 "memo": memos[i] if i < len(memos) else None,
             })
 
+        cashflow_category = request.form.get("cashflow_category") or None
         try:
             entry = post_journal(
                 company_id=g.active_company.id,
@@ -231,6 +234,7 @@ def new():
                 entry_date=entry_date, reference=reference,
                 currency=currency, exchange_rate=exchange_rate,
                 created_by=current_user.id,
+                cashflow_category=cashflow_category,
             )
             db.session.add(JournalAudit(
                 entry_id=entry.id, user_id=current_user.id,
@@ -284,6 +288,7 @@ def view(entry_id):
 
 @bp.route("/<int:entry_id>/reverse", methods=["POST"])
 @login_required
+@require_permission("journals.reverse")
 def reverse(entry_id):
     entry = db.session.get(JournalEntry, entry_id)
     if not entry or entry.company_id != g.active_company.id:
@@ -304,6 +309,7 @@ def reverse(entry_id):
 
 @bp.route("/<int:entry_id>/pause", methods=["POST"])
 @login_required
+@require_permission("journals.pause")
 def pause(entry_id):
     entry = db.session.get(JournalEntry, entry_id)
     if not entry or entry.company_id != g.active_company.id:
@@ -319,6 +325,7 @@ def pause(entry_id):
 
 @bp.route("/<int:entry_id>/reactivate", methods=["POST"])
 @login_required
+@require_permission("journals.pause")
 def reactivate(entry_id):
     entry = db.session.get(JournalEntry, entry_id)
     if not entry or entry.company_id != g.active_company.id:
@@ -341,6 +348,7 @@ def templates_list():
 
 @bp.route("/templates/new", methods=["GET", "POST"])
 @login_required
+@require_permission("journals.create")
 def templates_new():
     accounts = Account.query.filter_by(
         company_id=g.active_company.id, is_active=True
@@ -395,12 +403,122 @@ def use_template(template_id):
 @bp.route("/recurring")
 @login_required
 def recurring_list():
-    items = RecurringJournal.query.filter_by(company_id=g.active_company.id).all()
+    items = RecurringJournal.query.filter_by(
+        company_id=g.active_company.id, is_deleted=False
+    ).order_by(RecurringJournal.is_active.desc(), RecurringJournal.next_run_date).all()
     return render_template("journals/recurring.html", items=items)
+
+
+@bp.route("/recurring/<int:rec_id>/edit", methods=["POST"])
+@login_required
+@require_permission("journals.recurring")
+def recurring_edit(rec_id):
+    from app.models import RecurringAction
+    from app.services.journals import log_recurring_action
+    r = db.session.get(RecurringJournal, rec_id)
+    if not r or r.company_id != g.active_company.id or r.is_deleted:
+        flash("غير موجود", "error")
+        return redirect(url_for("journals.recurring_list"))
+    changes = []
+    new_name = request.form.get("name", "").strip()
+    if new_name and new_name != r.name:
+        changes.append(f"الاسم: {r.name} → {new_name}")
+        r.name = new_name
+    try:
+        new_freq = RecurrenceFrequency[request.form.get("frequency", r.frequency.name)]
+        if new_freq != r.frequency:
+            changes.append(f"التكرار: {r.frequency.name} → {new_freq.name}")
+            r.frequency = new_freq
+    except KeyError:
+        pass
+    new_next = _parse_date(request.form.get("next_run_date"), r.next_run_date)
+    if new_next != r.next_run_date:
+        changes.append(f"التاريخ التالي: {r.next_run_date} → {new_next}")
+        r.next_run_date = new_next
+    new_end = _parse_date(request.form.get("end_date"), r.end_date)
+    if new_end != r.end_date:
+        changes.append(f"تاريخ النهاية: {r.end_date} → {new_end}")
+        r.end_date = new_end
+    if changes:
+        log_recurring_action(r, RecurringAction.EDIT, current_user.id,
+                             reason=" · ".join(changes))
+    db.session.commit()
+    flash("تم تعديل الجدول", "success")
+    return redirect(url_for("journals.recurring_list"))
+
+
+@bp.route("/recurring/<int:rec_id>/stop", methods=["POST"])
+@login_required
+@require_permission("journals.recurring")
+def recurring_stop(rec_id):
+    from app.models import RecurringAction
+    from app.services.journals import log_recurring_action
+    r = db.session.get(RecurringJournal, rec_id)
+    if not r or r.company_id != g.active_company.id or r.is_deleted:
+        flash("غير موجود", "error")
+        return redirect(url_for("journals.recurring_list"))
+    reason = (request.form.get("reason") or "").strip()
+    if not reason:
+        flash("السبب مطلوب", "error")
+        return redirect(url_for("journals.recurring_list"))
+    r.is_active = False
+    log_recurring_action(r, RecurringAction.STOP, current_user.id, reason=reason)
+    db.session.commit()
+    flash("تم إيقاف الجدول", "success")
+    return redirect(url_for("journals.recurring_list"))
+
+
+@bp.route("/recurring/<int:rec_id>/resume", methods=["POST"])
+@login_required
+@require_permission("journals.recurring")
+def recurring_resume(rec_id):
+    from app.models import RecurringAction
+    from app.services.journals import log_recurring_action
+    r = db.session.get(RecurringJournal, rec_id)
+    if not r or r.company_id != g.active_company.id or r.is_deleted:
+        flash("غير موجود", "error")
+        return redirect(url_for("journals.recurring_list"))
+    r.is_active = True
+    log_recurring_action(r, RecurringAction.RESUME, current_user.id,
+                         reason=request.form.get("reason"))
+    db.session.commit()
+    flash("تم تفعيل الجدول", "success")
+    return redirect(url_for("journals.recurring_list"))
+
+
+@bp.route("/recurring/<int:rec_id>/delete", methods=["POST"])
+@login_required
+@require_permission("journals.recurring")
+def recurring_delete(rec_id):
+    from app.models import RecurringAction
+    from app.services.journals import log_recurring_action
+    r = db.session.get(RecurringJournal, rec_id)
+    if not r or r.company_id != g.active_company.id or r.is_deleted:
+        flash("غير موجود", "error")
+        return redirect(url_for("journals.recurring_list"))
+    reason = (request.form.get("reason") or "حذف").strip()
+    r.is_active = False
+    r.is_deleted = True
+    log_recurring_action(r, RecurringAction.DELETE, current_user.id, reason=reason)
+    db.session.commit()
+    flash("تم حذف الجدول", "success")
+    return redirect(url_for("journals.recurring_list"))
+
+
+@bp.route("/recurring/<int:rec_id>/log")
+@login_required
+def recurring_log(rec_id):
+    r = db.session.get(RecurringJournal, rec_id)
+    if not r or r.company_id != g.active_company.id:
+        flash("غير موجود", "error")
+        return redirect(url_for("journals.recurring_list"))
+    logs = sorted(r.logs, key=lambda l: l.created_at, reverse=True)
+    return render_template("journals/recurring_log.html", schedule=r, logs=logs)
 
 
 @bp.route("/recurring/new", methods=["GET", "POST"])
 @login_required
+@require_permission("journals.recurring")
 def recurring_new():
     templates = JournalTemplate.query.filter_by(
         company_id=g.active_company.id, is_active=True
@@ -519,6 +637,7 @@ def export_entry(entry_id, fmt):
 
 @bp.route("/bulk", methods=["POST"])
 @login_required
+@require_permission("journals.pause")
 def bulk_action():
     """Handle bulk actions on selected entries: export, pause."""
     action = request.form.get("action")

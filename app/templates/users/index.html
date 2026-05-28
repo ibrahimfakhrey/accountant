@@ -1,0 +1,91 @@
+{% extends "base.html" %}
+{% block page_title %}أعضاء الشركة{% endblock %}
+{% block content %}
+<div class="grid grid-cols-3 gap-4">
+  <div class="card p-6 col-span-2">
+    <h2 class="font-bold text-navy-900 mb-4">الأعضاء</h2>
+    <table class="data-table">
+      <thead>
+        <tr><th>الاسم</th><th>البريد</th><th>الدور</th><th>الإجراءات</th></tr>
+      </thead>
+      <tbody>
+        {% for m in members %}
+        <tr>
+          <td class="font-semibold">{{ m.user.full_name }}{% if m.user.id == current_user.id %} <span class="text-xs text-slate-400">(أنت)</span>{% endif %}</td>
+          <td dir="ltr" class="text-sm">{{ m.user.email }}</td>
+          <td>
+            <span class="badge {% if m.role=='owner' %}badge-paid{% elif m.role=='admin' %}badge-sent{% elif m.role=='accountant' %}badge-partial{% else %}badge-draft{% endif %}">
+              {{ role_labels.get(m.role, m.role) }}
+            </span>
+          </td>
+          <td class="text-xs">
+            {% if m.role != 'owner' %}
+            <form method="POST" action="{{ url_for('users.change_role', user_id=m.user.id) }}" class="inline">
+              <select name="role" class="select text-xs inline-block w-auto" onchange="this.form.submit()">
+                {% for r in roles %}{% if r != 'owner' %}
+                <option value="{{r}}" {% if m.role==r %}selected{% endif %}>{{ role_labels.get(r, r) }}</option>
+                {% endif %}{% endfor %}
+              </select>
+            </form>
+            <form method="POST" action="{{ url_for('users.revoke', user_id=m.user.id) }}" class="inline ms-2" onsubmit="return confirm('إزالة العضو من الشركة؟')">
+              <button type="submit" class="text-red-600 hover:underline">إزالة</button>
+            </form>
+            {% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+
+    {% if invitations %}
+    <hr class="my-6 border-slate-100">
+    <h3 class="font-bold text-navy-900 mb-3">الدعوات المعلّقة</h3>
+    <table class="data-table">
+      <thead><tr><th>البريد</th><th>الدور</th><th>تاريخ الإرسال</th><th>الحالة</th><th></th></tr></thead>
+      <tbody>
+        {% for inv in invitations %}
+        <tr>
+          <td dir="ltr" class="text-sm">{{ inv.email }}</td>
+          <td>{{ role_labels.get(inv.role, inv.role) }}</td>
+          <td class="text-xs">{{ inv.created_at.strftime('%Y-%m-%d') }}</td>
+          <td>
+            {% if inv.accepted_at %}<span class="badge badge-paid">مقبولة</span>
+            {% elif inv.revoked_at %}<span class="badge badge-cancelled">مُلغاة</span>
+            {% elif inv.expires_at < now %}<span class="badge badge-overdue">منتهية</span>
+            {% else %}<span class="badge badge-sent">معلّقة</span>{% endif %}
+          </td>
+          <td class="text-xs">
+            {% if not inv.accepted_at and not inv.revoked_at %}
+            <form method="POST" action="{{ url_for('users.revoke_invitation', inv_id=inv.id) }}" class="inline" onsubmit="return confirm('إلغاء الدعوة؟')">
+              <button type="submit" class="text-red-600 hover:underline">إلغاء</button>
+            </form>
+            {% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% endif %}
+  </div>
+
+  <div class="card p-6">
+    <h3 class="font-bold text-navy-900 mb-3">دعوة عضو جديد</h3>
+    <form method="POST" action="{{ url_for('users.invite') }}" class="space-y-3">
+      <div>
+        <label class="block text-sm font-semibold text-slate-700 mb-2">البريد الإلكتروني</label>
+        <input type="email" name="email" required dir="ltr" class="input">
+      </div>
+      <div>
+        <label class="block text-sm font-semibold text-slate-700 mb-2">الدور</label>
+        <select name="role" class="select">
+          <option value="admin">{{ role_labels.admin }} — كل شيء ما عدا إدارة الأعضاء</option>
+          <option value="accountant" selected>{{ role_labels.accountant }} — يقيد ويصدر تقارير</option>
+          <option value="viewer">{{ role_labels.viewer }} — مشاهدة فقط</option>
+        </select>
+      </div>
+      <button type="submit" class="btn-primary w-full">إرسال الدعوة</button>
+      <p class="text-xs text-slate-500">سيستلم العضو الجديد إيميل برابط ينقله لإنشاء حسابه أو تسجيل الدخول.</p>
+    </form>
+  </div>
+</div>
+{% endblock %}

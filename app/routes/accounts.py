@@ -3,6 +3,7 @@ from flask_login import login_required
 from app import db
 from app.models import Account, AccountType, NormalSide
 from app.models.account import NORMAL_SIDE_FOR_TYPE
+from app.services.permissions import require_permission
 
 
 TYPE_DEFAULT_CODES = {
@@ -98,6 +99,7 @@ def suggest_code():
 
 @bp.route("/new", methods=["GET", "POST"])
 @login_required
+@require_permission("accounts.manage")
 def new():
     if not g.active_company:
         return redirect(url_for("companies.new"))
@@ -156,6 +158,7 @@ def new():
 
 @bp.route("/<int:account_id>/delete", methods=["POST"])
 @login_required
+@require_permission("accounts.manage")
 def delete(account_id):
     acc = db.session.get(Account, account_id)
     if not acc or acc.company_id != g.active_company.id:

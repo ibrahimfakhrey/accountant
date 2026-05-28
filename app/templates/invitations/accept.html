@@ -1,0 +1,37 @@
+{% extends "base.html" %}
+{% block page_title %}قبول الدعوة{% endblock %}
+{% block content %}
+<div class="max-w-lg mx-auto card p-8">
+  <div class="text-center mb-6">
+    <div class="inline-block w-12 h-12 bg-brand-600 text-white rounded-xl flex items-center justify-center font-bold text-xl mb-3">م</div>
+    <h2 class="text-2xl font-bold text-navy-900">دعوة للانضمام</h2>
+    <p class="text-slate-500 mt-2">{{ company.name }}</p>
+    <p class="text-sm text-slate-400 mt-1">الدعوة لـ <span dir="ltr">{{ invitation.email }}</span> — صلاحية حتى {{ invitation.expires_at.strftime('%Y-%m-%d') }}</p>
+  </div>
+
+  <form method="POST" class="space-y-4">
+    {% if existing_user %}
+    <div class="bg-blue-50 border border-blue-100 rounded-lg p-3 text-sm">
+      لديك حساب بالفعل بهذا البريد — أدخل كلمة المرور للقبول.
+    </div>
+    <div>
+      <label class="block text-sm font-semibold text-slate-700 mb-2">كلمة المرور</label>
+      <input type="password" name="password" required class="input">
+    </div>
+    {% else %}
+    <div class="bg-emerald-50 border border-emerald-100 rounded-lg p-3 text-sm">
+      أدخل بياناتك لإنشاء حساب جديد وقبول الدعوة.
+    </div>
+    <div>
+      <label class="block text-sm font-semibold text-slate-700 mb-2">الاسم الكامل</label>
+      <input type="text" name="full_name" required class="input">
+    </div>
+    <div>
+      <label class="block text-sm font-semibold text-slate-700 mb-2">كلمة المرور (6+ أحرف)</label>
+      <input type="password" name="password" required minlength="6" class="input">
+    </div>
+    {% endif %}
+    <button type="submit" class="btn-primary w-full">قبول الدعوة والدخول</button>
+  </form>
+</div>
+{% endblock %}

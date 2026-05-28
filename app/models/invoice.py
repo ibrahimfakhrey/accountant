@@ -42,9 +42,6 @@ class Invoice(db.Model):
     notes = db.Column(db.Text)              # customer-facing
     internal_notes = db.Column(db.Text)     # private to the company
     send_reminders = db.Column(db.Boolean, default=True)
-    reminder_7d_sent_at = db.Column(db.DateTime)
-    reminder_3d_sent_at = db.Column(db.DateTime)
-    overdue_notified_at = db.Column(db.DateTime)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
     company = db.relationship("Company", backref=db.backref("invoices", lazy="dynamic"))
@@ -116,6 +113,28 @@ class InvoiceItem(db.Model):
     def total(self):
         # Backward-compat — pre-discount gross
         return self.gross
+
+
+class InvoiceReminderSent(db.Model):
+    """Tracks which reminder thresholds have already fired for an invoice.
+
+    threshold_kind: 'before' (days before due) or 'overdue' (days after due).
+    threshold_days: integer. Together with kind they uniquely identify a reminder
+    type so it doesn't fire twice.
+    """
+    __tablename__ = "invoice_reminders_sent"
+    id = db.Column(db.Integer, primary_key=True)
+    invoice_id = db.Column(db.Integer, db.ForeignKey("invoices.id"), nullable=False, index=True)
+    threshold_kind = db.Column(db.String(10), nullable=False)
+    threshold_days = db.Column(db.Integer, nullable=False)
+    sent_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+
+    invoice = db.relationship("Invoice", backref=db.backref("reminders_sent", cascade="all, delete-orphan"))
+
+    __table_args__ = (
+        db.UniqueConstraint("invoice_id", "threshold_kind", "threshold_days",
+                            name="uq_invoice_reminder_threshold"),
+    )
 
 
 class Payment(db.Model):

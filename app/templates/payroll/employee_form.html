@@ -1,39 +1,65 @@
 {% extends "base.html" %}
-{% block page_title %}موظف جديد{% endblock %}
+{% block page_title %}{% if employee %}تعديل: {{ employee.name }}{% else %}موظف جديد{% endif %}{% endblock %}
 {% block content %}
 <div class="card p-6 max-w-3xl">
   <form method="POST" class="space-y-4">
+    {% if has_history %}
+    <div class="bg-amber-50 border border-amber-200 text-amber-900 text-sm rounded-lg p-3">
+      هذا الموظف لديه سجل رواتب — لا يمكن تعديل <b>الرقم الوظيفي</b> أو <b>تاريخ بدء العمل</b>
+      لتجنب اختلال حساب الراتب النسبي لكشوفات سابقة.
+    </div>
+    {% endif %}
     <div class="grid grid-cols-2 gap-4">
       <div>
         <label class="block text-sm font-semibold text-slate-700 mb-2">الاسم</label>
-        <input type="text" name="name" required class="input">
+        <input type="text" name="name" required value="{{ employee.name if employee else '' }}" class="input">
       </div>
       <div>
         <label class="block text-sm font-semibold text-slate-700 mb-2">الوظيفة</label>
-        <input type="text" name="job_title" class="input">
+        <input type="text" name="job_title" value="{{ employee.job_title if employee else '' }}" class="input">
       </div>
     </div>
     <div class="grid grid-cols-2 gap-4">
       <div>
         <label class="block text-sm font-semibold text-slate-700 mb-2">البريد الإلكتروني</label>
-        <input type="email" name="email" dir="ltr" class="input">
+        <input type="email" name="email" dir="ltr" value="{{ employee.email if employee else '' }}" class="input">
       </div>
       <div>
         <label class="block text-sm font-semibold text-slate-700 mb-2">الهاتف</label>
-        <input type="text" name="phone" dir="ltr" class="input">
+        <input type="text" name="phone" dir="ltr" value="{{ employee.phone if employee else '' }}" class="input">
       </div>
     </div>
+    {% if employee %}
+    <div class="grid grid-cols-2 gap-4">
+      <div>
+        <label class="block text-sm font-semibold text-slate-700 mb-2">الرقم الوظيفي</label>
+        <input type="text" name="employee_number" value="{{ employee.employee_number or '' }}"
+               {% if has_history %}disabled{% endif %} class="input{% if has_history %} bg-slate-100 cursor-not-allowed{% endif %}">
+      </div>
+      <div>
+        <label class="block text-sm font-semibold text-slate-700 mb-2">الحالة</label>
+        <select name="status" class="select">
+          <option value="ACTIVE" {% if employee.status.value=='ACTIVE' %}selected{% endif %}>نشط</option>
+          <option value="SUSPENDED" {% if employee.status.value=='SUSPENDED' %}selected{% endif %}>موقوف</option>
+          <option value="TERMINATED" {% if employee.status.value=='TERMINATED' %}selected{% endif %}>منتهي العقد</option>
+        </select>
+      </div>
+    </div>
+    {% endif %}
     <div class="grid grid-cols-2 gap-4">
       <div>
         <label class="block text-sm font-semibold text-slate-700 mb-2">تاريخ بدء العمل</label>
-        <input type="date" name="start_date" id="start_date" class="input">
+        <input type="date" name="start_date" id="start_date"
+               value="{{ employee.start_date.isoformat() if employee and employee.start_date else '' }}"
+               {% if employee and has_history %}disabled{% endif %}
+               class="input{% if employee and has_history %} bg-slate-100 cursor-not-allowed{% endif %}">
       </div>
       <div>
         <label class="block text-sm font-semibold text-slate-700 mb-2">نوع العقد</label>
         <select name="contract_type" class="select">
-          <option value="FULL_TIME">دوام كامل</option>
-          <option value="PART_TIME">دوام جزئي</option>
-          <option value="TEMPORARY">مؤقت</option>
+          <option value="FULL_TIME" {% if employee and employee.contract_type.value=='FULL_TIME' %}selected{% endif %}>دوام كامل</option>
+          <option value="PART_TIME" {% if employee and employee.contract_type.value=='PART_TIME' %}selected{% endif %}>دوام جزئي</option>
+          <option value="TEMPORARY" {% if employee and employee.contract_type.value=='TEMPORARY' %}selected{% endif %}>مؤقت</option>
         </select>
       </div>
     </div>
@@ -42,23 +68,29 @@
     <div class="grid grid-cols-3 gap-4">
       <div>
         <label class="block text-sm font-semibold text-slate-700 mb-2">الراتب الأساسي</label>
-        <input type="number" name="basic_salary" step="0.01" value="0" required class="input font-mono">
+        <input type="number" name="basic_salary" step="0.01"
+               value="{{ employee.basic_salary if employee else 0 }}" required class="input font-mono">
       </div>
       <div>
         <label class="block text-sm font-semibold text-slate-700 mb-2">البدلات الثابتة</label>
-        <input type="number" name="allowances" step="0.01" value="0" class="input font-mono">
+        <input type="number" name="allowances" step="0.01"
+               value="{{ employee.allowances if employee else 0 }}" class="input font-mono">
       </div>
       <div>
         <label class="block text-sm font-semibold text-slate-700 mb-2">الخصومات الثابتة</label>
-        <input type="number" name="deductions" step="0.01" value="0" class="input font-mono">
+        <input type="number" name="deductions" step="0.01"
+               value="{{ employee.deductions if employee else 0 }}" class="input font-mono">
       </div>
     </div>
     <p class="text-xs text-slate-500">المتغيرات (أوفرتايم، غياب، سلف) بتدخلها وقت تشغيل كشف الرواتب لكل شهر</p>
     <div class="flex justify-end gap-2 pt-2">
-      <a href="{{ url_for('payroll.index') }}" class="btn-secondary">إلغاء</a>
-      <button type="submit" class="btn-primary">إضافة</button>
+      <a href="{{ url_for('payroll.employee_profile', employee_id=employee.id) if employee else url_for('payroll.index') }}" class="btn-secondary">إلغاء</a>
+      <button type="submit" class="btn-primary">{% if employee %}حفظ التعديلات{% else %}إضافة{% endif %}</button>
     </div>
   </form>
 </div>
-<script>document.getElementById('start_date').value = new Date().toISOString().split('T')[0];</script>
+<script>
+const sd = document.getElementById('start_date');
+if (sd && !sd.value) sd.value = new Date().toISOString().split('T')[0];
+</script>
 {% endblock %}

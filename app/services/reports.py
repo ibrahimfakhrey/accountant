@@ -109,8 +109,64 @@ def income_statement(company_id, start_date=None, end_date=None):
     return result
 
 
+def _classify_cashflow_entry(entry, cash_ids):
+    """Pick a cash flow category for a journal entry that touches cash.
+
+    Resolution order:
+      1. Manual override on the entry (entry.cashflow_category).
+      2. source_type hint (asset_purchase / invoice / payment / payroll / vendor_bill).
+      3. Account-code inference from the *non-cash* lines:
+           - 12xx (excl. 1290 accumulated dep) and inventory 1140  → INVESTING
+           - 3xxx equity or 21xx/22xx long-term liabilities         → FINANCING
+           - depreciation pair (5250 ↔ 1290)                         → NONCASH
+           - everything else (4xxx revenue / 5xxx expense / AR/AP) → OPERATING
+    """
+    if entry.cashflow_category in ("OPERATING", "INVESTING", "FINANCING", "NONCASH"):
+        return entry.cashflow_category
+
+    if entry.source_type == "asset_purchase":
+        return "INVESTING"
+    if entry.source_type == "depreciation":
+        return "NONCASH"
+
+    has_dep_expense = False
+    has_acc_dep = False
+    cats = set()
+    for line in entry.lines:
+        if line.account_id in cash_ids:
+            continue
+        code = line.account.code or ""
+        if code == "5250":
+            has_dep_expense = True
+        if code == "1290":
+            has_acc_dep = True
+        if code in ("1140",) or (code.startswith("12") and code != "1290"):
+            cats.add("INVESTING")
+        elif code.startswith("3"):
+            cats.add("FINANCING")
+        elif code.startswith("21") or code.startswith("22"):
+            cats.add("FINANCING")
+        else:
+            cats.add("OPERATING")
+
+    if has_dep_expense and has_acc_dep:
+        return "NONCASH"
+
+    # Priority if mixed: investing > financing > operating
+    for cat in ("INVESTING", "FINANCING", "OPERATING"):
+        if cat in cats:
+            return cat
+    return "OPERATING"
+
+
 def cash_flow(company_id, start_date=None, end_date=None):
-    """Simplified Cash Flow using cash account movements categorized."""
+    """Cash Flow Statement using cash account movements categorized by account-code inference.
+
+    Categories: OPERATING / INVESTING / FINANCING. NONCASH entries (e.g., depreciation
+    that doesn't touch 1110/1120) are naturally excluded because they don't hit a cash
+    account at all. If an entry that touches cash is marked NONCASH (rare — only when
+    the user overrides), it's still excluded.
+    """
     end_date = end_date or date.today()
     cash_codes = ["1110", "1120"]
     cash_accounts = Account.query.filter(
@@ -138,19 +194,18 @@ def cash_flow(company_id, start_date=None, end_date=None):
 
         for entry in entries.distinct():
             cash_flow_amt = 0.0
-            other_type = None
             for line in entry.lines:
                 if line.account_id in cash_ids:
                     cash_flow_amt += float(line.debit_base) - float(line.credit_base)
-                else:
-                    other_type = line.account.type
 
-            if other_type == AccountType.ASSET and entry.source_type == "asset_purchase":
+            category = _classify_cashflow_entry(entry, cash_ids)
+            if category == "INVESTING":
                 investing += cash_flow_amt
-            elif other_type == AccountType.EQUITY or other_type == AccountType.LIABILITY:
+            elif category == "FINANCING":
                 financing += cash_flow_amt
-            else:
+            elif category == "OPERATING":
                 operating += cash_flow_amt
+            # NONCASH → excluded
 
     return {
         "operating": operating,

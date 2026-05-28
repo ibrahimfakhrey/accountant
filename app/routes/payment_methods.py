@@ -2,6 +2,7 @@ from flask import Blueprint, render_template, redirect, url_for, flash, request,
 from flask_login import login_required
 from app import db
 from app.models import PaymentMethod, Account, Payment
+from app.services.permissions import require_permission
 
 bp = Blueprint("payment_methods", __name__)
 
@@ -17,6 +18,7 @@ def index():
 
 @bp.route("/new", methods=["GET", "POST"])
 @login_required
+@require_permission("payment_methods.manage")
 def new():
     # Show only Asset accounts as valid receiving accounts
     accounts = Account.query.filter_by(
@@ -47,6 +49,7 @@ def new():
 
 @bp.route("/<int:method_id>/toggle", methods=["POST"])
 @login_required
+@require_permission("payment_methods.manage")
 def toggle(method_id):
     pm = db.session.get(PaymentMethod, method_id)
     if not pm or pm.company_id != g.active_company.id:

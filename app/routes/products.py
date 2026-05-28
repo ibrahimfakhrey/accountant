@@ -2,6 +2,7 @@ from flask import Blueprint, render_template, redirect, url_for, flash, request,
 from flask_login import login_required
 from app import db
 from app.models import Product
+from app.services.permissions import require_permission
 
 bp = Blueprint("products", __name__)
 
@@ -17,6 +18,7 @@ def index():
 
 @bp.route("/new", methods=["GET", "POST"])
 @login_required
+@require_permission("products.manage")
 def new():
     if request.method == "POST":
         try:

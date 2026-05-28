@@ -2,7 +2,9 @@ from flask import Blueprint, render_template, redirect, url_for, flash, request,
 from flask_login import login_required, current_user
 from app import db
 from app.models import Company
+from app.models.user import user_companies
 from app.services.seed_coa import seed_default_coa
+from app.services.permissions import require_permission
 
 bp = Blueprint("companies", __name__)
 
@@ -36,7 +38,11 @@ def new():
             vat_rate=vat_rate,
             address=address,
         )
-        current_user.companies.append(company)
+        db.session.add(company)
+        db.session.flush()
+        db.session.execute(user_companies.insert().values(
+            user_id=current_user.id, company_id=company.id, role="owner",
+        ))
         db.session.commit()
         seed_default_coa(company.id)
         session["active_company_id"] = company.id
@@ -47,6 +53,7 @@ def new():
 
 @bp.route("/<int:company_id>/edit", methods=["GET", "POST"])
 @login_required
+@require_permission("company.edit")
 def edit(company_id):
     company = db.session.get(Company, company_id)
     if not company or company not in current_user.companies:
@@ -57,6 +64,27 @@ def edit(company_id):
         company.tax_number = request.form.get("tax_number", company.tax_number)
         company.vat_rate = float(request.form.get("vat_rate", company.vat_rate))
         company.address = request.form.get("address", company.address)
+
+        # Reminder config (T13) — parse comma-separated day lists.
+        def _parse_days(s):
+            out = []
+            for piece in (s or "").split(","):
+                piece = piece.strip()
+                if not piece:
+                    continue
+                try:
+                    n = int(piece)
+                    if n >= 0:
+                        out.append(n)
+                except ValueError:
+                    pass
+            return sorted(set(out), reverse=True)
+        company.set_reminders({
+            "enabled": request.form.get("reminders_enabled") == "1",
+            "days_before": _parse_days(request.form.get("reminders_days_before", "7,3")),
+            "overdue_days": _parse_days(request.form.get("reminders_overdue_days", "0")),
+        })
+
         db.session.commit()
         flash("تم الحفظ", "success")
         return redirect(url_for("companies.index"))

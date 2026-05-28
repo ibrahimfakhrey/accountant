@@ -20,28 +20,50 @@
   </div>
 
   <table class="data-table">
-    <thead><tr><th>الموظف</th><th>أيام</th><th class="text-left">الأساسي</th><th class="text-left">البدلات</th><th class="text-left">أوفرتايم</th><th class="text-left">بونص</th><th class="text-left">خصومات</th><th class="text-left">الصافي</th><th></th></tr></thead>
+    <thead>
+      <tr>
+        <th>الموظف</th>
+        <th class="text-center">أيام</th>
+        <th class="text-left">الأساسي</th>
+        <th class="text-left">البدلات</th>
+        <th class="text-left">أوفرتايم</th>
+        <th class="text-left">بونص</th>
+        <th class="text-left">خصومات</th>
+        <th class="text-left">الصافي</th>
+        <th class="text-left">المدفوع</th>
+        <th class="text-left">المستحق</th>
+      </tr>
+    </thead>
     <tbody>
       {% for l in run.lines %}
+      {% set accrued = (l.net|float) - (l.amount_paid|float) %}
       <tr>
         <td>
           <a href="{{ url_for('payroll.employee_profile', employee_id=l.employee_id) }}" class="font-semibold hover:text-brand-600">{{ l.employee.name }}</a>
           <div class="text-xs text-slate-500">{{ l.employee.employee_number or '' }}</div>
         </td>
-        <td class="text-center">{{ l.working_days }}/30</td>
+        <td class="text-center font-mono">{{ l.working_days }}/30</td>
         <td class="text-left font-mono">{{ "%.2f"|format(l.basic) }}</td>
         <td class="text-left font-mono">{{ "%.2f"|format(l.allowances) }}</td>
         <td class="text-left font-mono text-emerald-600">{{ "%.2f"|format(l.overtime) }}</td>
         <td class="text-left font-mono text-emerald-600">{{ "%.2f"|format(l.bonus) }}</td>
         <td class="text-left font-mono text-red-600">{{ "%.2f"|format((l.deductions or 0) + (l.absence_deduction or 0) + (l.late_deduction or 0) + (l.advance_deduction or 0)) }}</td>
         <td class="text-left font-mono font-bold">{{ "%.2f"|format(l.net) }}</td>
-        <td><a href="{{ url_for('payroll.payslip_pdf', run_id=run.id, line_id=l.id) }}" target="_blank" class="text-brand-600 hover:underline text-xs">PDF</a></td>
+        <td class="text-left font-mono">{{ "%.2f"|format(l.amount_paid or 0) }}</td>
+        <td class="text-left font-mono {% if accrued > 0 %}text-amber-700 font-semibold{% else %}text-slate-300{% endif %}">{{ "%.2f"|format(accrued) }}</td>
+      </tr>
+      <tr class="bg-slate-50/60">
+        <td colspan="10" class="py-2 px-4 text-left">
+          <a href="{{ url_for('payroll.payslip_pdf', run_id=run.id, line_id=l.id) }}" target="_blank" class="text-brand-600 hover:underline text-xs">
+            📄 تحميل كشف الراتب (PDF) — {{ l.employee.name }}
+          </a>
+        </td>
       </tr>
       {% endfor %}
       <tr class="border-t-2 border-navy-900 font-bold bg-navy-50">
         <td colspan="7" class="text-left py-3">الإجمالي</td>
         <td class="text-left font-mono text-lg">{{ "%.2f"|format(run.total_net) }}</td>
-        <td></td>
+        <td colspan="2"></td>
       </tr>
     </tbody>
   </table>

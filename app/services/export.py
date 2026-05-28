@@ -1,5 +1,6 @@
 """PDF and Excel export for financial reports."""
 import io
+import os
 from datetime import date
 from openpyxl import Workbook
 from openpyxl.styles import Font, PatternFill, Alignment
@@ -7,6 +8,10 @@ from reportlab.lib.pagesizes import A4
 from reportlab.lib.units import cm
 from reportlab.pdfgen import canvas
 from reportlab.lib import colors
+from reportlab.pdfbase import pdfmetrics
+from reportlab.pdfbase.ttfonts import TTFont
+import arabic_reshaper
+from bidi.algorithm import get_display
 from app.services.reports import (
     balance_sheet, income_statement, cash_flow,
     income_summary, expenses_summary, income_statement_compared,
@@ -17,6 +22,36 @@ from app.services.reports import (
 NAVY = colors.HexColor("#0A2540")
 BLUE = colors.HexColor("#2563EB")
 GRAY = colors.HexColor("#64748B")
+
+# ─── Arabic-capable font registration ──────────────────────────────────
+_FONT_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "static", "fonts")
+_FONT_REGULAR = "Amiri"
+_FONT_BOLD = "Amiri-Bold"
+
+
+def _register_fonts():
+    if _FONT_REGULAR in pdfmetrics.getRegisteredFontNames():
+        return
+    pdfmetrics.registerFont(TTFont(_FONT_REGULAR, os.path.join(_FONT_DIR, "Amiri-Regular.ttf")))
+    pdfmetrics.registerFont(TTFont(_FONT_BOLD, os.path.join(_FONT_DIR, "Amiri-Bold.ttf")))
+
+
+_register_fonts()
+
+
+def ar(text):
+    """Shape Arabic text for correct rendering in reportlab PDFs.
+
+    Safe to call on any string: reshapes Arabic ligatures + applies bidi
+    for correct visual order. Pure-Latin strings pass through unchanged.
+    """
+    if text is None:
+        return ""
+    s = str(text)
+    if not s:
+        return s
+    reshaped = arabic_reshaper.reshape(s)
+    return get_display(reshaped)
 
 
 def _excel_styled_header(ws, title, company_name, period):
@@ -123,25 +158,25 @@ def _pdf_header(p, company, title, period):
     p.setFillColor(NAVY)
     p.rect(0, 27.7 * cm, 21 * cm, 2 * cm, fill=1, stroke=0)
     p.setFillColor(colors.white)
-    p.setFont("Helvetica-Bold", 18)
-    p.drawString(1.5 * cm, 28.5 * cm, company.name)
-    p.setFont("Helvetica", 10)
-    p.drawString(1.5 * cm, 28 * cm, "Marsoud — Financial Report")
+    p.setFont(_FONT_BOLD, 18)
+    p.drawString(1.5 * cm, 28.5 * cm, ar(company.name))
+    p.setFont(_FONT_REGULAR, 10)
+    p.drawString(1.5 * cm, 28 * cm, ar("Marsoud — Financial Report"))
 
     p.setFillColor(NAVY)
-    p.setFont("Helvetica-Bold", 16)
-    p.drawString(1.5 * cm, 26.5 * cm, title)
+    p.setFont(_FONT_BOLD, 16)
+    p.drawString(1.5 * cm, 26.5 * cm, ar(title))
     p.setFillColor(GRAY)
-    p.setFont("Helvetica", 10)
-    p.drawString(1.5 * cm, 26 * cm, period)
+    p.setFont(_FONT_REGULAR, 10)
+    p.drawString(1.5 * cm, 26 * cm, ar(period))
 
 
 def _pdf_section(p, y, label):
     p.setFillColor(NAVY)
     p.rect(1 * cm, y - 0.4 * cm, 19 * cm, 0.7 * cm, fill=1, stroke=0)
     p.setFillColor(colors.white)
-    p.setFont("Helvetica-Bold", 11)
-    p.drawString(1.3 * cm, y - 0.2 * cm, label)
+    p.setFont(_FONT_BOLD, 11)
+    p.drawString(1.3 * cm, y - 0.2 * cm, ar(label))
     return y - 1 * cm
 
 
@@ -159,18 +194,18 @@ def export_balance_sheet_pdf(company, as_of):
     ]:
         y = _pdf_section(p, y, section)
         p.setFillColor(colors.black)
-        p.setFont("Helvetica", 10)
+        p.setFont(_FONT_REGULAR, 10)
         for item in items:
             if y < 3 * cm:
                 p.showPage()
                 _pdf_header(p, company, "Balance Sheet (cont.)", f"As of {as_of}")
                 y = 24.5 * cm
-            p.drawString(1.5 * cm, y, f"{item['code']}  {item['name']}")
+            p.drawString(1.5 * cm, y, ar(f"{item['code']}  {item['name']}"))
             p.drawRightString(19.5 * cm, y, f"{item['balance']:,.2f}")
             y -= 0.5 * cm
-        p.setFont("Helvetica-Bold", 10)
+        p.setFont(_FONT_BOLD, 10)
         p.setFillColor(BLUE)
-        p.drawString(1.5 * cm, y, f"Total {section}")
+        p.drawString(1.5 * cm, y, ar(f"Total {section}"))
         p.drawRightString(19.5 * cm, y, f"{data['totals'][total_key]:,.2f}")
         p.setFillColor(colors.black)
         y -= 1 * cm
@@ -194,14 +229,14 @@ def export_income_statement_pdf(company, start, end):
     ]:
         y = _pdf_section(p, y, section)
         p.setFillColor(colors.black)
-        p.setFont("Helvetica", 10)
+        p.setFont(_FONT_REGULAR, 10)
         for item in items:
-            p.drawString(1.5 * cm, y, f"{item['code']}  {item['name']}")
+            p.drawString(1.5 * cm, y, ar(f"{item['code']}  {item['name']}"))
             p.drawRightString(19.5 * cm, y, f"{item['balance']:,.2f}")
             y -= 0.5 * cm
-        p.setFont("Helvetica-Bold", 10)
+        p.setFont(_FONT_BOLD, 10)
         p.setFillColor(BLUE)
-        p.drawString(1.5 * cm, y, f"Total {section}")
+        p.drawString(1.5 * cm, y, ar(f"Total {section}"))
         p.drawRightString(19.5 * cm, y, f"{data[total_key]:,.2f}")
         p.setFillColor(colors.black)
         y -= 1 * cm
@@ -212,7 +247,7 @@ def export_income_statement_pdf(company, start, end):
     p.setFillColor(color)
     p.rect(1 * cm, y - 0.5 * cm, 19 * cm, 0.9 * cm, fill=1, stroke=0)
     p.setFillColor(colors.white)
-    p.setFont("Helvetica-Bold", 13)
+    p.setFont(_FONT_BOLD, 13)
     p.drawString(1.5 * cm, y - 0.2 * cm, "NET PROFIT / (LOSS)")
     p.drawRightString(19.5 * cm, y - 0.2 * cm, f"{profit:,.2f}")
 
@@ -230,15 +265,15 @@ def export_invoice_pdf(invoice):
 
     y = 24.5 * cm
     p.setFillColor(colors.HexColor("#475569"))
-    p.setFont("Helvetica-Bold", 11)
+    p.setFont(_FONT_BOLD, 11)
     p.drawString(1.5 * cm, y, "BILL TO:")
     y -= 0.5 * cm
     p.setFillColor(colors.black)
-    p.setFont("Helvetica", 11)
-    p.drawString(1.5 * cm, y, invoice.customer.name)
+    p.setFont(_FONT_REGULAR, 11)
+    p.drawString(1.5 * cm, y, ar(invoice.customer.name))
     if invoice.customer.email:
         y -= 0.5 * cm
-        p.setFont("Helvetica", 9)
+        p.setFont(_FONT_REGULAR, 9)
         p.drawString(1.5 * cm, y, invoice.customer.email)
 
     y -= 1.2 * cm
@@ -246,7 +281,7 @@ def export_invoice_pdf(invoice):
     p.setFillColor(NAVY)
     p.rect(1 * cm, y - 0.4 * cm, 19 * cm, 0.7 * cm, fill=1, stroke=0)
     p.setFillColor(colors.white)
-    p.setFont("Helvetica-Bold", 10)
+    p.setFont(_FONT_BOLD, 10)
     p.drawString(1.3 * cm, y - 0.15 * cm, "DESCRIPTION")
     p.drawString(12 * cm, y - 0.15 * cm, "QTY")
     p.drawString(14 * cm, y - 0.15 * cm, "PRICE")
@@ -254,16 +289,16 @@ def export_invoice_pdf(invoice):
     y -= 1 * cm
 
     p.setFillColor(colors.black)
-    p.setFont("Helvetica", 10)
+    p.setFont(_FONT_REGULAR, 10)
     for item in invoice.items:
-        p.drawString(1.3 * cm, y, item.description[:60])
+        p.drawString(1.3 * cm, y, ar(item.description[:60]))
         p.drawString(12 * cm, y, f"{float(item.quantity):.2f}")
         p.drawString(14 * cm, y, f"{float(item.unit_price):,.2f}")
         p.drawRightString(19.5 * cm, y, f"{item.total:,.2f}")
         y -= 0.5 * cm
 
     y -= 0.5 * cm
-    p.setFont("Helvetica", 10)
+    p.setFont(_FONT_REGULAR, 10)
     p.drawRightString(17 * cm, y, "Subtotal:")
     p.drawRightString(19.5 * cm, y, f"{float(invoice.subtotal):,.2f}")
     y -= 0.5 * cm
@@ -273,7 +308,7 @@ def export_invoice_pdf(invoice):
     p.setFillColor(NAVY)
     p.rect(13 * cm, y - 0.4 * cm, 7 * cm, 0.8 * cm, fill=1, stroke=0)
     p.setFillColor(colors.white)
-    p.setFont("Helvetica-Bold", 12)
+    p.setFont(_FONT_BOLD, 12)
     p.drawString(13.3 * cm, y - 0.15 * cm, "TOTAL:")
     p.drawRightString(19.5 * cm, y - 0.15 * cm, f"{float(invoice.total):,.2f} {invoice.currency}")
 
@@ -292,10 +327,10 @@ def export_payslip_pdf(employee, line, run):
 
     y = 24 * cm
     p.setFillColor(colors.HexColor("#475569"))
-    p.setFont("Helvetica-Bold", 10)
-    p.drawString(1.5 * cm, y, f"Employee #:  {employee.employee_number or '—'}")
+    p.setFont(_FONT_BOLD, 10)
+    p.drawString(1.5 * cm, y, ar(f"Employee #:  {employee.employee_number or '—'}"))
     y -= 0.5 * cm
-    p.drawString(1.5 * cm, y, f"Working days: {line.working_days}/30")
+    p.drawString(1.5 * cm, y, ar(f"Working days: {line.working_days}/30"))
     y -= 1.5 * cm
 
     rows = [
@@ -308,12 +343,12 @@ def export_payslip_pdf(employee, line, run):
         ("Late", -float(line.late_deduction), True),
         ("Advance", -float(line.advance_deduction), True),
     ]
-    p.setFont("Helvetica", 10)
+    p.setFont(_FONT_REGULAR, 10)
     for label, value, neg in rows:
         if abs(value) < 0.01:
             continue
         p.setFillColor(colors.HexColor("#B91C1C") if neg else colors.black)
-        p.drawString(1.5 * cm, y, label)
+        p.drawString(1.5 * cm, y, ar(label))
         p.drawRightString(19.5 * cm, y, f"{value:+,.2f}")
         y -= 0.55 * cm
 
@@ -321,7 +356,7 @@ def export_payslip_pdf(employee, line, run):
     p.setFillColor(NAVY)
     p.rect(1 * cm, y - 0.5 * cm, 19 * cm, 1 * cm, fill=1, stroke=0)
     p.setFillColor(colors.white)
-    p.setFont("Helvetica-Bold", 13)
+    p.setFont(_FONT_BOLD, 13)
     p.drawString(1.5 * cm, y - 0.15 * cm, "NET PAY")
     p.drawRightString(19.5 * cm, y - 0.15 * cm, f"{float(line.net):,.2f}")
 
@@ -340,19 +375,19 @@ def export_journal_entry_pdf(entry):
 
     y = 24 * cm
     p.setFillColor(colors.HexColor("#475569"))
-    p.setFont("Helvetica", 10)
-    p.drawString(1.5 * cm, y, f"Description: {entry.description}")
+    p.setFont(_FONT_REGULAR, 10)
+    p.drawString(1.5 * cm, y, ar(f"Description: {entry.description}"))
     y -= 0.5 * cm
     if entry.reference:
-        p.drawString(1.5 * cm, y, f"Reference: {entry.reference}")
+        p.drawString(1.5 * cm, y, ar(f"Reference: {entry.reference}"))
         y -= 0.5 * cm
-    p.drawString(1.5 * cm, y, f"Status: {'Active' if entry.is_active else 'PAUSED'}")
+    p.drawString(1.5 * cm, y, ar(f"Status: {'Active' if entry.is_active else 'PAUSED'}"))
     y -= 1 * cm
 
     p.setFillColor(NAVY)
     p.rect(1 * cm, y - 0.4 * cm, 19 * cm, 0.7 * cm, fill=1, stroke=0)
     p.setFillColor(colors.white)
-    p.setFont("Helvetica-Bold", 10)
+    p.setFont(_FONT_BOLD, 10)
     p.drawString(1.3 * cm, y - 0.2 * cm, "ACCOUNT")
     p.drawString(11 * cm, y - 0.2 * cm, "MEMO")
     p.drawString(15.5 * cm, y - 0.2 * cm, "DEBIT")
@@ -360,14 +395,14 @@ def export_journal_entry_pdf(entry):
     y -= 0.9 * cm
 
     p.setFillColor(colors.black)
-    p.setFont("Helvetica", 9)
+    p.setFont(_FONT_REGULAR, 9)
     for line in entry.lines:
         if y < 3 * cm:
             p.showPage()
             y = 27 * cm
         acc_label = f"{line.account.code} {line.account.name[:30]}"
-        p.drawString(1.3 * cm, y, acc_label)
-        p.drawString(11 * cm, y, (line.memo or "")[:25])
+        p.drawString(1.3 * cm, y, ar(acc_label))
+        p.drawString(11 * cm, y, ar((line.memo or "")[:25]))
         p.drawString(15.5 * cm, y, f"{float(line.debit):,.2f}")
         p.drawRightString(19.5 * cm, y, f"{float(line.credit):,.2f}")
         y -= 0.5 * cm
@@ -376,7 +411,7 @@ def export_journal_entry_pdf(entry):
     p.setFillColor(NAVY)
     p.rect(1 * cm, y - 0.5 * cm, 19 * cm, 0.8 * cm, fill=1, stroke=0)
     p.setFillColor(colors.white)
-    p.setFont("Helvetica-Bold", 11)
+    p.setFont(_FONT_BOLD, 11)
     p.drawString(1.3 * cm, y - 0.15 * cm, "TOTAL")
     p.drawString(15.5 * cm, y - 0.15 * cm, f"{entry.total_debit:,.2f}")
     p.drawRightString(19.5 * cm, y - 0.15 * cm, f"{entry.total_credit:,.2f}")
@@ -447,7 +482,7 @@ def export_journals_list_pdf(company, entries, period_label=""):
     p.setFillColor(NAVY)
     p.rect(1 * cm, y - 0.4 * cm, 19 * cm, 0.7 * cm, fill=1, stroke=0)
     p.setFillColor(colors.white)
-    p.setFont("Helvetica-Bold", 9)
+    p.setFont(_FONT_BOLD, 9)
     p.drawString(1.3 * cm, y - 0.2 * cm, "#")
     p.drawString(3 * cm, y - 0.2 * cm, "DATE")
     p.drawString(5.5 * cm, y - 0.2 * cm, "DESCRIPTION")
@@ -458,17 +493,17 @@ def export_journals_list_pdf(company, entries, period_label=""):
     y -= 0.8 * cm
 
     p.setFillColor(colors.black)
-    p.setFont("Helvetica", 8)
+    p.setFont(_FONT_REGULAR, 8)
     total_d = total_c = 0.0
     for e in entries:
         if y < 3 * cm:
             p.showPage()
             y = 27 * cm
-        p.drawString(1.3 * cm, y, (e.number or f"#{e.id}")[:10])
+        p.drawString(1.3 * cm, y, ar((e.number or f"#{e.id}")[:10]))
         p.drawString(3 * cm, y, str(e.date))
-        p.drawString(5.5 * cm, y, (e.description or "")[:42])
-        p.drawString(12 * cm, y, (e.reference or "")[:10])
-        p.drawString(14 * cm, y, "Active" if e.is_active else "PAUSED")
+        p.drawString(5.5 * cm, y, ar((e.description or "")[:42]))
+        p.drawString(12 * cm, y, ar((e.reference or "")[:10]))
+        p.drawString(14 * cm, y, ar("Active" if e.is_active else "PAUSED"))
         p.drawString(15.5 * cm, y, f"{e.total_debit:,.2f}")
         p.drawRightString(19.5 * cm, y, f"{e.total_credit:,.2f}")
         total_d += e.total_debit
@@ -479,8 +514,8 @@ def export_journals_list_pdf(company, entries, period_label=""):
     p.setFillColor(NAVY)
     p.rect(1 * cm, y - 0.5 * cm, 19 * cm, 0.8 * cm, fill=1, stroke=0)
     p.setFillColor(colors.white)
-    p.setFont("Helvetica-Bold", 10)
-    p.drawString(1.3 * cm, y - 0.15 * cm, f"TOTAL ({len(entries)} entries)")
+    p.setFont(_FONT_BOLD, 10)
+    p.drawString(1.3 * cm, y - 0.15 * cm, ar(f"TOTAL ({len(entries)} entries)"))
     p.drawString(15.5 * cm, y - 0.15 * cm, f"{total_d:,.2f}")
     p.drawRightString(19.5 * cm, y - 0.15 * cm, f"{total_c:,.2f}")
 
@@ -502,7 +537,7 @@ def export_payroll_run_pdf(run):
     p.setFillColor(NAVY)
     p.rect(1 * cm, y - 0.4 * cm, 19 * cm, 0.7 * cm, fill=1, stroke=0)
     p.setFillColor(colors.white)
-    p.setFont("Helvetica-Bold", 9)
+    p.setFont(_FONT_BOLD, 9)
     p.drawString(1.3 * cm, y - 0.2 * cm, "EMPLOYEE")
     p.drawString(7.5 * cm, y - 0.2 * cm, "DAYS")
     p.drawString(9 * cm, y - 0.2 * cm, "BASIC")
@@ -513,12 +548,12 @@ def export_payroll_run_pdf(run):
     y -= 0.9 * cm
 
     p.setFillColor(colors.black)
-    p.setFont("Helvetica", 9)
+    p.setFont(_FONT_REGULAR, 9)
     for line in run.lines:
         if y < 3 * cm:
             p.showPage()
             y = 27 * cm
-        p.drawString(1.3 * cm, y, (line.employee.name[:30]))
+        p.drawString(1.3 * cm, y, ar(line.employee.name[:30]))
         p.drawString(7.5 * cm, y, f"{line.working_days}/30")
         p.drawString(9 * cm, y, f"{float(line.basic):,.2f}")
         p.drawString(11.3 * cm, y, f"{float(line.allowances):,.2f}")
@@ -533,7 +568,7 @@ def export_payroll_run_pdf(run):
     p.setFillColor(NAVY)
     p.rect(1 * cm, y - 0.5 * cm, 19 * cm, 0.9 * cm, fill=1, stroke=0)
     p.setFillColor(colors.white)
-    p.setFont("Helvetica-Bold", 12)
+    p.setFont(_FONT_BOLD, 12)
     p.drawString(1.3 * cm, y - 0.15 * cm, "TOTAL NET")
     p.drawRightString(19.5 * cm, y - 0.15 * cm, f"{float(run.total_net):,.2f} {run.company.base_currency}")
 
@@ -625,16 +660,16 @@ def _list_pdf(company, title, period_label, headers, rows, totals_row=None, col_
     p.setFillColor(NAVY)
     p.rect(1 * cm, y - 0.4 * cm, 19 * cm, 0.7 * cm, fill=1, stroke=0)
     p.setFillColor(colors.white)
-    p.setFont("Helvetica-Bold", 9)
+    p.setFont(_FONT_BOLD, 9)
     for i, (label, align) in enumerate(headers):
         if align == "right":
-            p.drawRightString(x_starts[i] + col_widths[i] * cm - 0.2 * cm, y - 0.2 * cm, str(label))
+            p.drawRightString(x_starts[i] + col_widths[i] * cm - 0.2 * cm, y - 0.2 * cm, ar(label))
         else:
-            p.drawString(x_starts[i] + 0.2 * cm, y - 0.2 * cm, str(label))
+            p.drawString(x_starts[i] + 0.2 * cm, y - 0.2 * cm, ar(label))
     y -= 0.9 * cm
 
     p.setFillColor(colors.black)
-    p.setFont("Helvetica", 9)
+    p.setFont(_FONT_REGULAR, 9)
     for row in rows:
         if y < 3 * cm:
             p.showPage()
@@ -643,9 +678,9 @@ def _list_pdf(company, title, period_label, headers, rows, totals_row=None, col_
         for i, val in enumerate(row):
             align = headers[i][1]
             if align == "right":
-                p.drawRightString(x_starts[i] + col_widths[i] * cm - 0.2 * cm, y, str(val))
+                p.drawRightString(x_starts[i] + col_widths[i] * cm - 0.2 * cm, y, ar(val))
             else:
-                p.drawString(x_starts[i] + 0.2 * cm, y, str(val))
+                p.drawString(x_starts[i] + 0.2 * cm, y, ar(val))
         y -= 0.5 * cm
 
     if totals_row:
@@ -653,13 +688,13 @@ def _list_pdf(company, title, period_label, headers, rows, totals_row=None, col_
         p.setFillColor(NAVY)
         p.rect(1 * cm, y - 0.5 * cm, 19 * cm, 0.8 * cm, fill=1, stroke=0)
         p.setFillColor(colors.white)
-        p.setFont("Helvetica-Bold", 10)
+        p.setFont(_FONT_BOLD, 10)
         for i, val in enumerate(totals_row):
             align = headers[i][1]
             if align == "right":
-                p.drawRightString(x_starts[i] + col_widths[i] * cm - 0.2 * cm, y - 0.15 * cm, str(val))
+                p.drawRightString(x_starts[i] + col_widths[i] * cm - 0.2 * cm, y - 0.15 * cm, ar(val))
             else:
-                p.drawString(x_starts[i] + 0.2 * cm, y - 0.15 * cm, str(val))
+                p.drawString(x_starts[i] + 0.2 * cm, y - 0.15 * cm, ar(val))
 
     p.showPage()
     p.save()
@@ -819,9 +854,9 @@ def export_vat_report(company, fmt, start, end):
         _pdf_header(p, company, "VAT Return", period)
         y = 24 * cm
         p.setFillColor(colors.HexColor("#475569"))
-        p.setFont("Helvetica", 11)
+        p.setFont(_FONT_REGULAR, 11)
         if company.tax_number:
-            p.drawString(1.5 * cm, y, f"Tax Number: {company.tax_number}")
+            p.drawString(1.5 * cm, y, ar(f"Tax Number: {company.tax_number}"))
             y -= 0.8 * cm
 
         # Three rows: collected, paid, net — large summary cards
@@ -832,18 +867,18 @@ def export_vat_report(company, fmt, start, end):
             p.setFillColor(color)
             p.rect(1 * cm, y - 1.5 * cm, 19 * cm, 1.2 * cm, fill=1, stroke=0)
             p.setFillColor(colors.white)
-            p.setFont("Helvetica-Bold", 12)
-            p.drawString(1.5 * cm, y - 0.8 * cm, label)
-            p.setFont("Helvetica-Bold", 16)
+            p.setFont(_FONT_BOLD, 12)
+            p.drawString(1.5 * cm, y - 0.8 * cm, ar(label))
+            p.setFont(_FONT_BOLD, 16)
             p.drawRightString(19.5 * cm, y - 0.8 * cm, f"{amount:,.2f} {company.base_currency}")
             y -= 2 * cm
 
         p.setFillColor(NAVY)
         p.rect(1 * cm, y - 1.5 * cm, 19 * cm, 1.4 * cm, fill=1, stroke=0)
         p.setFillColor(colors.white)
-        p.setFont("Helvetica-Bold", 13)
-        p.drawString(1.5 * cm, y - 0.8 * cm, "NET DUE TO GOVERNMENT")
-        p.setFont("Helvetica-Bold", 18)
+        p.setFont(_FONT_BOLD, 13)
+        p.drawString(1.5 * cm, y - 0.8 * cm, ar("NET DUE TO GOVERNMENT"))
+        p.setFont(_FONT_BOLD, 18)
         p.drawRightString(19.5 * cm, y - 0.8 * cm, f"{data['net']:,.2f} {company.base_currency}")
 
         p.showPage()

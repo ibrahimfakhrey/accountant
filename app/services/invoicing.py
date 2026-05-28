@@ -126,7 +126,7 @@ def record_payment(invoice, amount, payment_date=None, method=None, payment_meth
     return payment
 
 
-def issue_refund(invoice, refund_type, amount=None, reason=None, created_by=None):
+def issue_refund(invoice, refund_type, amount=None, reason=None, created_by=None, notify=False):
     """3 scenarios: FULL, PARTIAL, CREDIT_NOTE."""
     if refund_type == RefundType.FULL:
         amount = float(invoice.total)
@@ -238,6 +238,20 @@ def issue_refund(invoice, refund_type, amount=None, reason=None, created_by=None
         invoice.status = InvoiceStatus.PARTIALLY_REFUNDED
 
     db.session.commit()
+
+    if notify:
+        try:
+            from app.services.email import send_refund_email, send_credit_note_email
+            if refund_type == RefundType.CREDIT_NOTE:
+                # cn was created above; fetch latest matching credit note
+                cn = CreditNote.query.filter_by(invoice_id=invoice.id).order_by(CreditNote.id.desc()).first()
+                if cn:
+                    send_credit_note_email(invoice, cn)
+            else:
+                send_refund_email(invoice, refund)
+        except Exception:
+            import logging
+            logging.getLogger("ledgeros.invoicing").exception("refund email failed")
     return refund
 
 

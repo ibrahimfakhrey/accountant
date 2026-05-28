@@ -68,7 +68,35 @@ class RecurringJournal(db.Model):
     next_run_date = db.Column(db.Date, nullable=False, index=True)
     end_date = db.Column(db.Date)
     is_active = db.Column(db.Boolean, default=True)
+    is_deleted = db.Column(db.Boolean, default=False)  # soft-delete; row preserved for log history
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
     template = db.relationship("JournalTemplate")
     company = db.relationship("Company")
+
+
+class RecurringAction(enum.Enum):
+    EXECUTE = "EXECUTE"
+    FAIL = "FAIL"
+    EDIT = "EDIT"
+    STOP = "STOP"
+    RESUME = "RESUME"
+    DELETE = "DELETE"
+
+
+class RecurringJournalLog(db.Model):
+    """Audit log entry recording an action taken on a recurring journal schedule."""
+    __tablename__ = "recurring_journal_logs"
+    id = db.Column(db.Integer, primary_key=True)
+    recurring_id = db.Column(db.Integer, db.ForeignKey("recurring_journals.id"), nullable=False, index=True)
+    action = db.Column(db.Enum(RecurringAction), nullable=False)
+    period_posted = db.Column(db.Date)
+    journal_entry_id = db.Column(db.Integer, db.ForeignKey("journal_entries.id"))
+    error_message = db.Column(db.Text)
+    reason = db.Column(db.Text)
+    created_by = db.Column(db.Integer, db.ForeignKey("users.id"))
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, index=True)
+
+    schedule = db.relationship("RecurringJournal", backref=db.backref("logs", cascade="all, delete-orphan"))
+    user = db.relationship("User")
+    journal_entry = db.relationship("JournalEntry")

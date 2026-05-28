@@ -10,6 +10,7 @@ from app.services.invoicing import (
 )
 from app.services.ledger import LedgerError
 from app.services.numbering import next_number
+from app.services.permissions import require_permission
 
 bp = Blueprint("invoices", __name__)
 
@@ -127,6 +128,7 @@ def _populate_invoice_from_form(invoice, form):
 
 @bp.route("/new", methods=["GET", "POST"])
 @login_required
+@require_permission("invoices.create")
 def new():
     if not g.active_company:
         return redirect(url_for("companies.new"))
@@ -169,6 +171,7 @@ def new():
 
 @bp.route("/<int:invoice_id>/edit", methods=["GET", "POST"])
 @login_required
+@require_permission("invoices.create")
 def edit(invoice_id):
     invoice = db.session.get(Invoice, invoice_id)
     if not invoice or invoice.company_id != g.active_company.id:
@@ -220,6 +223,7 @@ def view(invoice_id):
 
 @bp.route("/<int:invoice_id>/send", methods=["POST"])
 @login_required
+@require_permission("invoices.send")
 def send(invoice_id):
     invoice = db.session.get(Invoice, invoice_id)
     if not invoice or invoice.company_id != g.active_company.id:
@@ -241,6 +245,7 @@ def send(invoice_id):
 
 @bp.route("/<int:invoice_id>/resend", methods=["POST"])
 @login_required
+@require_permission("invoices.send")
 def resend(invoice_id):
     invoice = db.session.get(Invoice, invoice_id)
     if not invoice or invoice.company_id != g.active_company.id:
@@ -256,6 +261,7 @@ def resend(invoice_id):
 
 @bp.route("/<int:invoice_id>/pay", methods=["POST"])
 @login_required
+@require_permission("invoices.create")
 def pay(invoice_id):
     invoice = db.session.get(Invoice, invoice_id)
     if not invoice or invoice.company_id != g.active_company.id:
@@ -278,6 +284,7 @@ def pay(invoice_id):
 
 @bp.route("/<int:invoice_id>/refund", methods=["POST"])
 @login_required
+@require_permission("invoices.refund")
 def refund(invoice_id):
     invoice = db.session.get(Invoice, invoice_id)
     if not invoice or invoice.company_id != g.active_company.id:
@@ -287,7 +294,9 @@ def refund(invoice_id):
         rtype = RefundType[request.form.get("type")]
         amount = request.form.get("amount")
         reason = request.form.get("reason", "")
-        issue_refund(invoice, rtype, amount=amount, reason=reason, created_by=current_user.id)
+        notify = request.form.get("email_customer") == "1"
+        issue_refund(invoice, rtype, amount=amount, reason=reason,
+                     created_by=current_user.id, notify=notify)
         flash("تم تسجيل الاسترداد", "success")
     except (LedgerError, KeyError) as e:
         flash(str(e), "error")

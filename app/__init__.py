@@ -40,6 +40,8 @@ def create_app(config_class=Config):
     from app.routes.products import bp as products_bp
     from app.routes.payment_methods import bp as pmethods_bp
     from app.routes.vendor_bills import bp as vbills_bp
+    from app.routes.users import bp as users_bp
+    from app.routes.invitations import bp as invitations_bp
 
     app.register_blueprint(auth_bp)
     app.register_blueprint(dashboard_bp)
@@ -57,6 +59,8 @@ def create_app(config_class=Config):
     app.register_blueprint(products_bp, url_prefix="/products")
     app.register_blueprint(pmethods_bp, url_prefix="/payment-methods")
     app.register_blueprint(vbills_bp, url_prefix="/vendor-bills")
+    app.register_blueprint(users_bp, url_prefix="/users")
+    app.register_blueprint(invitations_bp, url_prefix="/invitations")
 
     @app.before_request
     def load_active_company():
@@ -76,9 +80,20 @@ def create_app(config_class=Config):
 
     @app.context_processor
     def inject_globals():
+        from datetime import datetime
+        from app.services.permissions import has_permission, get_user_role
+        active_company = g.get("active_company")
+        current_role = None
+        if active_company:
+            from flask_login import current_user as _cu
+            if _cu.is_authenticated:
+                current_role = get_user_role(_cu.id, active_company.id)
         return {
-            "active_company": g.get("active_company"),
+            "active_company": active_company,
             "user_companies": g.get("user_companies", []),
+            "now": datetime.utcnow(),
+            "has_permission": has_permission,
+            "current_role": current_role,
         }
 
     @app.template_filter("money")

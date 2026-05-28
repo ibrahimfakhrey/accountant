@@ -5,6 +5,7 @@ from app import db
 from app.models import FixedAsset, DepreciationEntry, Account, Vendor
 from app.services.assets import post_monthly_depreciation, post_asset_purchase
 from app.services.ledger import LedgerError
+from app.services.permissions import require_permission
 
 bp = Blueprint("assets", __name__)
 
@@ -51,6 +52,7 @@ def index():
 
 @bp.route("/new", methods=["GET", "POST"])
 @login_required
+@require_permission("assets.manage")
 def new():
     fixed_accounts = Account.query.filter(
         Account.company_id == g.active_company.id,
@@ -106,6 +108,7 @@ def view(asset_id):
 
 @bp.route("/depreciate", methods=["POST"])
 @login_required
+@require_permission("assets.manage")
 def depreciate():
     today = date.today()
     year = int(request.form.get("year", today.year))

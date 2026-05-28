@@ -1,0 +1,24 @@
+{% extends "emails/_base.html" %}
+{% block title %}دعوة للانضمام إلى {{ invitation.company.name }}{% endblock %}
+{% block content %}
+<h2 style="color:#0A2540;margin:0 0 16px">مرحباً!</h2>
+<p style="line-height:1.7;color:#475569">
+  دعاك <b>{{ invitation.invited_by.full_name if invitation.invited_by else 'صاحب الحساب' }}</b>
+  للانضمام إلى <b>{{ invitation.company.name }}</b> على نظام مرصود (Marsoud)
+  بدور <span style="background:#EBF5FF;color:#1E40AF;padding:2px 8px;border-radius:4px;font-weight:bold">{{ role_label }}</span>.
+</p>
+
+<table style="width:100%;border-collapse:collapse;margin:24px 0;background:#F8FAFC;border-radius:12px;overflow:hidden">
+  <tr><td style="padding:12px 16px;color:#64748B">الشركة</td><td style="padding:12px 16px;text-align:left;font-weight:bold">{{ invitation.company.name }}</td></tr>
+  <tr><td style="padding:12px 16px;color:#64748B">الدور</td><td style="padding:12px 16px;text-align:left">{{ role_label }}</td></tr>
+  <tr><td style="padding:12px 16px;color:#64748B">صلاحية الدعوة</td><td style="padding:12px 16px;text-align:left">حتى {{ invitation.expires_at.strftime('%Y-%m-%d') }}</td></tr>
+</table>
+
+<div style="text-align:center;margin:32px 0">
+  <a href="{{ accept_url }}" style="display:inline-block;background:#2563EB;color:#fff;padding:12px 28px;border-radius:10px;text-decoration:none;font-weight:bold">قبول الدعوة</a>
+</div>
+
+<p style="line-height:1.7;color:#94A3B8;font-size:12px">
+  لو ما كنتش متوقع الدعوة دي، تجاهل هذا الإيميل وما حدش هيقدر يدخل بحسابك.
+</p>
+{% endblock %}
