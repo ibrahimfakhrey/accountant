@@ -41,6 +41,20 @@ def index():
         q = q.outerjoin(Vendor, VendorBill.vendor_id == Vendor.id).filter(
             db.or_(VendorBill.number.ilike(like), Vendor.name.ilike(like), VendorBill.supplier_invoice_number.ilike(like))
         )
+
+    def _parse_date(value):
+        try:
+            return datetime.strptime(value, "%Y-%m-%d").date()
+        except (ValueError, TypeError):
+            return None
+
+    date_from = _parse_date(request.args.get("date_from"))
+    date_to = _parse_date(request.args.get("date_to"))
+    if date_from:
+        q = q.filter(VendorBill.issue_date >= date_from)
+    if date_to:
+        q = q.filter(VendorBill.issue_date <= date_to)
+
     bills = q.order_by(VendorBill.issue_date.desc(), VendorBill.id.desc()).all()
 
     total_invoiced = sum(float(b.total or 0) for b in bills)

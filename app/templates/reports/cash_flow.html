@@ -12,6 +12,9 @@
       <input type="date" name="end_date" value="{{ end.isoformat() }}" class="input">
     </div>
     <button type="submit" class="btn-primary">عرض</button>
+    <div class="flex-grow"></div>
+    <a href="{{ url_for('reports.export', report_type='cash-flow', fmt='pdf', start_date=start.isoformat(), end_date=end.isoformat()) }}" class="btn-secondary">PDF</a>
+    <a href="{{ url_for('reports.export', report_type='cash-flow', fmt='excel', start_date=start.isoformat(), end_date=end.isoformat()) }}" class="btn-secondary">Excel</a>
   </form>
 </div>
 

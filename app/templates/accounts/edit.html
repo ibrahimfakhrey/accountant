@@ -1,0 +1,126 @@
+{% extends "base.html" %}
+{% block page_title %}تعديل الحساب{% endblock %}
+{% block content %}
+<div class="card p-6 max-w-2xl">
+  <div class="mb-5">
+    <h2 class="font-bold text-navy-900">تعديل الحساب {{ account.code }}</h2>
+    <p class="text-sm text-slate-500 mt-1">{{ account.name_ar or account.name }}</p>
+  </div>
+
+  {% if entry_count > 0 %}
+  <div class="rounded-lg bg-amber-50 border border-amber-200 text-amber-800 text-sm p-3 mb-4">
+    ⚠ هذا الحساب{% if descendant_count > 0 %} (أو أبناؤه){% endif %} عليه <strong>{{ entry_count }}</strong> قيد مسجّل.
+    التعديل لا يحذف القيود، لكنه يغيّر تصنيفها في التقارير. لازم تأكيد قبل الحفظ.
+  </div>
+  {% endif %}
+  {% if descendant_count > 0 %}
+  <div class="rounded-lg bg-blue-50 border border-blue-200 text-blue-800 text-sm p-3 mb-4">
+    ℹ هذا الحساب أب لـ <strong>{{ descendant_count }}</strong> حساب — تغيير التصنيف أو الحساب الأب سينقل كل الأبناء تلقائياً للتصنيف الجديد.
+  </div>
+  {% endif %}
+
+  <form method="POST" class="space-y-4">
+    <div class="grid grid-cols-2 gap-4">
+      <div>
+        <label class="block text-sm font-semibold text-slate-700 mb-2">الحساب الأب</label>
+        <select name="parent_id" id="parent_id" class="select" onchange="onParentChange()">
+          <option value="">— حساب رئيسي —</option>
+          {% for p in parents %}
+          <option value="{{ p.id }}" data-type="{{ p.type.name }}" {% if account.parent_id == p.id %}selected{% endif %}>{{ p.code }} — {{ p.name_ar or p.name }}</option>
+          {% endfor %}
+        </select>
+        <p class="text-xs text-slate-500 mt-1">غيّر الأب لنقل الحساب من تصنيف لآخر</p>
+      </div>
+      <div>
+        <label class="block text-sm font-semibold text-slate-700 mb-2">التصنيف</label>
+        <select name="type" id="type" required class="select" onchange="onTypeChange()">
+          {% for t in account_types %}
+          <option value="{{ t.name }}" {% if account.type == t %}selected{% endif %}>{{ t.value }}</option>
+          {% endfor %}
+        </select>
+        <p id="type-locked-hint" class="text-xs text-slate-500 mt-1 hidden">مأخوذ من الحساب الأب تلقائياً</p>
+      </div>
+    </div>
+
+    <div class="grid grid-cols-2 gap-4">
+      <div>
+        <label class="block text-sm font-semibold text-slate-700 mb-2">الكود</label>
+        <input type="text" name="code" id="code" required value="{{ account.code }}" class="input font-mono">
+      </div>
+      <div>
+        <label class="block text-sm font-semibold text-slate-700 mb-2">الطبيعة</label>
+        <select name="normal_side" id="normal_side" required class="select">
+          {% for ns in normal_sides %}
+          <option value="{{ ns.name }}" {% if account.normal_side == ns %}selected{% endif %}>{{ ns.value }}</option>
+          {% endfor %}
+        </select>
+      </div>
+    </div>
+
+    <div>
+      <label class="block text-sm font-semibold text-slate-700 mb-2">الاسم بالعربية</label>
+      <input type="text" name="name_ar" value="{{ account.name_ar or '' }}" class="input">
+    </div>
+    <div>
+      <label class="block text-sm font-semibold text-slate-700 mb-2">الاسم بالإنجليزية</label>
+      <input type="text" name="name" required dir="ltr" value="{{ account.name }}" class="input">
+    </div>
+
+    {% if entry_count > 0 %}
+    <label class="flex items-center gap-2 text-sm text-amber-800 bg-amber-50 border border-amber-200 rounded-lg p-3">
+      <input type="checkbox" name="confirm" value="1" required>
+      أؤكد تعديل حساب عليه قيود مسجّلة
+    </label>
+    {% endif %}
+
+    <div class="flex justify-end gap-2 pt-2">
+      <a href="{{ url_for('accounts.index') }}" class="btn-secondary">إلغاء</a>
+      <button type="submit" class="btn-primary">حفظ التعديل</button>
+    </div>
+  </form>
+</div>
+
+<script>
+const parentSelect = document.getElementById('parent_id');
+const typeSelect = document.getElementById('type');
+const normalSelect = document.getElementById('normal_side');
+const typeHint = document.getElementById('type-locked-hint');
+
+const DEFAULT_SIDE = {
+  ASSET: 'DEBIT', EXPENSE: 'DEBIT',
+  LIABILITY: 'CREDIT', EQUITY: 'CREDIT', REVENUE: 'CREDIT',
+};
+
+function onParentChange() {
+  const opt = parentSelect.options[parentSelect.selectedIndex];
+  const parentType = opt ? opt.dataset.type : null;
+  if (parentType) {
+    typeSelect.value = parentType;
+    typeSelect.disabled = true;
+    typeHint.classList.remove('hidden');
+    normalSelect.value = DEFAULT_SIDE[parentType];
+  } else {
+    typeSelect.disabled = false;
+    typeHint.classList.add('hidden');
+  }
+}
+
+function onTypeChange() {
+  normalSelect.value = DEFAULT_SIDE[typeSelect.value] || normalSelect.value;
+}
+
+// A disabled select isn't submitted — mirror its value into a hidden field.
+const form = parentSelect.closest('form');
+form.addEventListener('submit', () => {
+  if (typeSelect.disabled) {
+    const hidden = document.createElement('input');
+    hidden.type = 'hidden';
+    hidden.name = 'type';
+    hidden.value = typeSelect.value;
+    form.appendChild(hidden);
+  }
+});
+
+onParentChange();
+</script>
+{% endblock %}

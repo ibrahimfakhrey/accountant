@@ -23,8 +23,11 @@
     </div>
     <div class="mt-4">
       <label class="block text-sm font-semibold text-slate-700 mb-2">الوصف</label>
-      <input type="text" name="description" required class="input">
+      <input type="text" name="description" required class="input" value="{{ prefill_template.description if prefill_template else '' }}">
     </div>
+    {% if prefill_template %}
+    <p class="mt-2 text-xs text-emerald-700">تم التعبئة من القالب: <strong>{{ prefill_template.name }}</strong></p>
+    {% endif %}
     <div class="mt-4">
       <label class="block text-sm font-semibold text-slate-700 mb-2">تصنيف التدفق النقدي <span class="text-slate-400 text-xs">(اختياري — يُحسب تلقائياً إذا تُرك فارغاً)</span></label>
       <select name="cashflow_category" class="select max-w-xs">
@@ -69,18 +72,23 @@
 
 <script>
 const accountsData = [{% for a in accounts %}{id:{{a.id}},code:"{{a.code}}",name:"{{(a.name_ar or a.name)|e}}"}{% if not loop.last %},{% endif %}{% endfor %}];
+const prefillLines = [{% if prefill_template %}{% for l in prefill_template.lines %}{account_id:{{l.account_id}},debit:{{l.debit or 0}},credit:{{l.credit or 0}},memo:"{{(l.memo or '')|e}}"}{% if not loop.last %},{% endif %}{% endfor %}{% endif %}];
 let lineIdx = 0;
-function addLine() {
+function addLine(prefill) {
   const tbody = document.getElementById('lines-body');
   const tr = document.createElement('tr');
+  const aid = prefill ? prefill.account_id : '';
+  const memo = prefill ? prefill.memo : '';
+  const debit = prefill ? prefill.debit : 0;
+  const credit = prefill ? prefill.credit : 0;
   tr.innerHTML = `
     <td><select name="account_id[]" class="select text-sm" onchange="updateTotals()">
       <option value="">— اختر —</option>
-      ${accountsData.map(a => `<option value="${a.id}">${a.code} — ${a.name}</option>`).join('')}
+      ${accountsData.map(a => `<option value="${a.id}" ${a.id == aid ? 'selected' : ''}>${a.code} — ${a.name}</option>`).join('')}
     </select></td>
-    <td><input type="text" name="memo[]" class="input text-sm"></td>
-    <td><input type="number" name="debit[]" step="0.01" min="0" value="0" class="input text-sm font-mono text-left" oninput="updateTotals()"></td>
-    <td><input type="number" name="credit[]" step="0.01" min="0" value="0" class="input text-sm font-mono text-left" oninput="updateTotals()"></td>
+    <td><input type="text" name="memo[]" class="input text-sm" value="${memo}"></td>
+    <td><input type="number" name="debit[]" step="0.01" min="0" value="${debit}" class="input text-sm font-mono text-left" oninput="updateTotals()"></td>
+    <td><input type="number" name="credit[]" step="0.01" min="0" value="${credit}" class="input text-sm font-mono text-left" oninput="updateTotals()"></td>
     <td><button type="button" onclick="this.closest('tr').remove(); updateTotals();" class="text-red-500 text-sm">×</button></td>
   `;
   tbody.appendChild(tr);
@@ -106,7 +114,12 @@ function updateTotals() {
     btn.classList.add('opacity-50');
   }
 }
-addLine(); addLine();
+if (prefillLines.length) {
+  prefillLines.forEach(l => addLine(l));
+  updateTotals();
+} else {
+  addLine(); addLine();
+}
 document.getElementById('entry-date').value = new Date().toISOString().split('T')[0];
 </script>
 {% endblock %}

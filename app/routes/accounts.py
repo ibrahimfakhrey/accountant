@@ -156,6 +156,130 @@ def new():
     return render_template("accounts/form.html", parents=parents, account_types=AccountType)
 
 
+def _descendants(account):
+    """All descendants of an account (depth-first), excluding the account itself."""
+    out = []
+    stack = list(account.children)
+    while stack:
+        node = stack.pop()
+        out.append(node)
+        stack.extend(node.children)
+    return out
+
+
+def _entry_count(account, descendants):
+    """Number of journal lines posted to the account or any of its descendants."""
+    ids = [account.id] + [d.id for d in descendants]
+    from app.models.journal import JournalLine
+    return JournalLine.query.filter(JournalLine.account_id.in_(ids)).count()
+
+
+@bp.route("/<int:account_id>/edit", methods=["GET", "POST"])
+@login_required
+@require_permission("accounts.manage")
+def edit(account_id):
+    if not g.active_company:
+        return redirect(url_for("companies.new"))
+    acc = db.session.get(Account, account_id)
+    if not acc or acc.company_id != g.active_company.id:
+        flash("غير مسموح", "error")
+        return redirect(url_for("accounts.index"))
+
+    descendants = _descendants(acc)
+    descendant_ids = {d.id for d in descendants}
+    entry_count = _entry_count(acc, descendants)
+
+    # Parent options: any account in the company except self and its own descendants
+    # (prevents creating a cycle).
+    parents = [
+        p for p in Account.query.filter_by(company_id=g.active_company.id)
+        .order_by(Account.code).all()
+        if p.id != acc.id and p.id not in descendant_ids
+    ]
+
+    def render_form():
+        return render_template(
+            "accounts/edit.html", account=acc, parents=parents,
+            account_types=AccountType, normal_sides=NormalSide,
+            entry_count=entry_count, descendant_count=len(descendants),
+        )
+
+    if request.method == "POST":
+        code = request.form.get("code", "").strip()
+        name = request.form.get("name", "").strip()
+        name_ar = request.form.get("name_ar", "").strip()
+        type_str = request.form.get("type")
+        normal_str = request.form.get("normal_side")
+        parent_id = request.form.get("parent_id") or None
+        if parent_id == "":
+            parent_id = None
+
+        # Validate parent: must belong to company, not self, not a descendant.
+        parent = None
+        if parent_id:
+            parent = db.session.get(Account, int(parent_id))
+            if not parent or parent.company_id != g.active_company.id:
+                flash("الحساب الأب غير صحيح", "error")
+                return render_form()
+            if parent.id == acc.id or parent.id in descendant_ids:
+                flash("لا يمكن جعل الحساب تابعاً لنفسه أو لأحد أبنائه", "error")
+                return render_form()
+            # Parent picks the classification — guarantees hierarchy consistency.
+            type_str = parent.type.name
+
+        try:
+            acc_type = AccountType[type_str]
+        except (KeyError, TypeError):
+            flash("نوع الحساب غير صحيح", "error")
+            return render_form()
+
+        try:
+            normal_side = NormalSide[normal_str] if normal_str else NORMAL_SIDE_FOR_TYPE[acc_type]
+        except (KeyError, TypeError):
+            normal_side = NORMAL_SIDE_FOR_TYPE[acc_type]
+
+        if not code:
+            flash("الكود مطلوب", "error")
+            return render_form()
+        clash = Account.query.filter(
+            Account.company_id == g.active_company.id,
+            Account.code == code,
+            Account.id != acc.id,
+        ).first()
+        if clash:
+            flash(f"الكود {code} مستخدم بالفعل — اختر كوداً آخر", "error")
+            return render_form()
+        if not name:
+            flash("الاسم بالإنجليزية مطلوب", "error")
+            return render_form()
+
+        # If the account has posted entries, require explicit confirmation.
+        if entry_count > 0 and not request.form.get("confirm"):
+            flash(f"هذا الحساب (أو أبناؤه) عليه {entry_count} قيد — أكّد التعديل", "warning")
+            return render_form()
+
+        type_changed = acc.type != acc_type
+
+        acc.code = code
+        acc.name = name
+        acc.name_ar = name_ar
+        acc.type = acc_type
+        acc.normal_side = normal_side
+        acc.parent_id = parent.id if parent else None
+
+        # Classification change cascades to all descendants (keeps tree consistent).
+        if type_changed:
+            for d in descendants:
+                d.type = acc_type
+                d.normal_side = NORMAL_SIDE_FOR_TYPE[acc_type]
+
+        db.session.commit()
+        flash(f"تم تعديل الحساب {acc.code}", "success")
+        return redirect(url_for("accounts.index"))
+
+    return render_form()
+
+
 @bp.route("/<int:account_id>/delete", methods=["POST"])
 @login_required
 @require_permission("accounts.manage")

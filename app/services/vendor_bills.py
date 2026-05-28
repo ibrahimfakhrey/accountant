@@ -110,10 +110,19 @@ def post_vendor_bill(bill, created_by=None):
             "memo": f"{item.line_type.value}: {item.description}",
         })
 
-    # VAT (if any) — optional; allow tax_amount > 0 to land in VAT Receivable
-    # For simplicity, fold tax into the cost (most SMEs do this in the Gulf for non-VAT-registered firms).
-    # If tax_amount > 0, also debit a tax recoverable account. Skipped here for now — we keep it as part
-    # of the line debit base via inflating line_total externally if needed.
+    # Input VAT: debit 2120 (VAT Payable) so it nets against output VAT from sales.
+    # The VAT report reads 2120 debits as "VAT paid to suppliers".
+    tax_amount = float(bill.tax_amount or 0)
+    if tax_amount > 0.001:
+        vat = get_account_by_code(bill.company_id, "2120")
+        if not vat:
+            raise LedgerError("حساب ضريبة القيمة المضافة (2120) غير موجود")
+        journal_lines.append({
+            "account_id": vat.id,
+            "debit": tax_amount,
+            "credit": 0,
+            "memo": f"ضريبة القيمة المضافة على المشتريات — فاتورة {bill.number}",
+        })
 
     journal_lines.append({
         "account_id": funding.id,

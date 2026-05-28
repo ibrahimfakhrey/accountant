@@ -756,6 +756,29 @@ def export_income_summary(company, fmt, start, end):
         f"income-summary-{start}-{end}.xlsx", XLSX_MIME
 
 
+# ─── Cash Flow ──────────────────────────────────────────────────────────
+def export_cash_flow(company, fmt, start, end):
+    data = cash_flow(company.id, start_date=start, end_date=end)
+    period = f"{start} → {end}" if start else f"→ {end}"
+    if fmt == "pdf":
+        headers = [("Activity", "left"), ("Net Cash Flow", "right")]
+        rows = [
+            ["Operating Activities", f"{data['operating']:,.2f}"],
+            ["Investing Activities", f"{data['investing']:,.2f}"],
+            ["Financing Activities", f"{data['financing']:,.2f}"],
+        ]
+        totals = ["Net Change in Cash", f"{data['net_change']:,.2f}"]
+        return _list_pdf(company, "Cash Flow Statement", period, headers, rows, totals,
+                         col_widths=[10, 6]), f"cash-flow-{start}-{end}.pdf", "application/pdf"
+    return _list_excel(company, "Cash Flow Statement", period,
+                       ["النشاط", "صافي التدفق النقدي"],
+                       [["الأنشطة التشغيلية", data["operating"]],
+                        ["الأنشطة الاستثمارية", data["investing"]],
+                        ["الأنشطة التمويلية", data["financing"]]],
+                       ["صافي التغير في النقد", data["net_change"]]), \
+        f"cash-flow-{start}-{end}.xlsx", XLSX_MIME
+
+
 # ─── Expenses Summary ───────────────────────────────────────────────────
 def export_expenses_summary(company, fmt, start, end):
     data = expenses_summary(company.id, start_date=start, end_date=end)
@@ -956,6 +979,8 @@ def export_report(company, report_type, fmt, start, end, **kwargs):
         if fmt == "pdf":
             return export_income_statement_pdf(company, start, end), f"income-statement-{start}-{end}.pdf", "application/pdf"
         return export_income_statement_excel(company, start, end), f"income-statement-{start}-{end}.xlsx", XLSX_MIME
+    if report_type == "cash-flow":
+        return export_cash_flow(company, fmt, start, end)
     if report_type == "income-summary":
         return export_income_summary(company, fmt, start, end)
     if report_type == "expenses-summary":
